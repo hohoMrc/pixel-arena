@@ -1,4 +1,4 @@
-import { SKILLS, TICK_RATE } from "../shared/constants.js";
+import { SKILLS, TICK_RATE, DASH_INDEX } from "../shared/constants.js";
 import { theme } from "./theme.js";
 
 /** 搖桿推超過半徑的這個比例才算有方向 */
@@ -10,7 +10,7 @@ const DIRECTIONS = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1],
 const KEYS = {
   up: ["w", "arrowup"], down: ["s", "arrowdown"],
   left: ["a", "arrowleft"], right: ["d", "arrowright"],
-  skills: [["j", " "], ["k"]],
+  skills: [["j", " "], ["k"], ["l", "shift"]],
 };
 
 /**
@@ -34,9 +34,12 @@ export class Controls {
     const kx = (key(KEYS.right) ? 1 : 0) - (key(KEYS.left) ? 1 : 0);
     const ky = (key(KEYS.down) ? 1 : 0) - (key(KEYS.up) ? 1 : 0);
 
+    // 一次只能送一個技能；衝刺是閃避用的，同時按住時以衝刺優先
+    const held = (i) => this.heldSkills.has(i) || key(KEYS.skills[i] ?? []);
     let skill = 0;
-    for (let i = 0; i < SKILLS.length; i++) {
-      if (this.heldSkills.has(i) || key(KEYS.skills[i] ?? [])) { skill = i + 1; break; }
+    if (DASH_INDEX >= 0 && held(DASH_INDEX)) skill = DASH_INDEX + 1;
+    else for (let i = 0; i < SKILLS.length; i++) {
+      if (held(i)) { skill = i + 1; break; }
     }
     if (skill) this.markCast(skill - 1);
 

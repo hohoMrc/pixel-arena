@@ -1,4 +1,4 @@
-import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_SPEED } from "./constants.js";
+import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_SPEED, SKILLS, DASH_INDEX } from "./constants.js";
 import { obstacleHitByBox } from "./obstacles.js";
 
 const clamp = (value, min, max) => (value < min ? min : value > max ? max : value);
@@ -9,22 +9,45 @@ const clamp = (value, min, max) => (value < min ? min : value > max ? max : valu
  * 必須是純函式：只依賴參數，不讀時間、不用亂數。
  * 只要兩邊算法一致，客戶端預測就不會和伺服器結果對不上。
  *
- * @param {{x:number,y:number,vx:number,vy:number}} entity 會被直接修改
- * @param {{moveX:number,moveY:number}} input 每軸 -1 / 0 / 1
+ * 衝刺也在這裡處理（包含冷卻），所以按下衝刺時客戶端能立刻預測，不會被伺服器拉回。
+ *
+ * @param {{x,y,vx,vy,faceX,faceY,dashTicks,dashCd}} entity 會被直接修改
+ * @param {{moveX:number,moveY:number,skill:number}} input moveX/moveY 每軸 -1 / 0 / 1
  * @param {number} dt 秒
  */
 export function stepEntity(entity, input, dt) {
-  let dirX = input.moveX;
-  let dirY = input.moveY;
+  const dash = SKILLS[DASH_INDEX];
+  if (entity.dashCd > 0) entity.dashCd--;
 
-  // 斜走時正規化，避免比直走還快
-  if (dirX !== 0 && dirY !== 0) {
-    dirX *= Math.SQRT1_2;
-    dirY *= Math.SQRT1_2;
+  // 有在移動就更新面向（技能和衝刺的方向）
+  if (input.moveX !== 0 || input.moveY !== 0) {
+    entity.faceX = input.moveX;
+    entity.faceY = input.moveY;
   }
 
-  let vx = dirX * PLAYER_SPEED;
-  let vy = dirY * PLAYER_SPEED;
+  // 開始衝刺：方向 = 面向（有推搖桿時就是推的方向）
+  if (dash && input.skill === DASH_INDEX + 1 && entity.dashCd === 0 && entity.dashTicks === 0) {
+    entity.dashTicks = dash.ticks;
+    entity.dashCd = dash.cooldownTicks;
+  }
+
+  let vx, vy;
+  if (entity.dashTicks > 0) {
+    entity.dashTicks--;
+    const len = Math.hypot(entity.faceX, entity.faceY) || 1;
+    vx = (entity.faceX / len) * dash.speed;
+    vy = (entity.faceY / len) * dash.speed;
+  } else {
+    let dirX = input.moveX;
+    let dirY = input.moveY;
+    // 斜走時正規化，避免比直走還快
+    if (dirX !== 0 && dirY !== 0) {
+      dirX *= Math.SQRT1_2;
+      dirY *= Math.SQRT1_2;
+    }
+    vx = dirX * PLAYER_SPEED;
+    vy = dirY * PLAYER_SPEED;
+  }
 
   const x = entity.x + vx * dt;
   const y = entity.y + vy * dt;

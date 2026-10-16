@@ -7,6 +7,7 @@
   --accent: #ffe066;
   --skill-0: #ff8a3d;
   --skill-1: #ff4d2e;
+  --skill-2: #4fc3f7;
   font-family: "Courier New", ui-monospace, monospace;
 }
 
@@ -131,6 +132,7 @@ html, body {
 }
 .skill-0 { width: 88px; height: 88px; grid-column: 2; grid-row: 1 / span 2; }
 .skill-1 { --color: var(--skill-1); grid-column: 1; grid-row: 2; }
+.skill-2 { --color: var(--skill-2); grid-column: 1; grid-row: 1; }
 .skill.pressed { transform: translateY(3px); box-shadow: 0 1px 0 #111219; }
 .skill .icon { font-size: 24px; line-height: 1; }
 .skill-0 .icon { font-size: 32px; }

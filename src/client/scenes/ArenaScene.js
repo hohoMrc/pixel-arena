@@ -1,6 +1,6 @@
 import * as Phaser from "phaser";
 import { Callbacks } from "@colyseus/sdk";
-import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_MAX_HP, SKILLS } from "../../shared/constants.js";
+import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_MAX_HP, SKILLS, DASH_INDEX } from "../../shared/constants.js";
 import { theme, playerTextureKey, walkTextureKey } from "../theme.js";
 import { createMissingTextures } from "../placeholders.js";
 import { OBSTACLE_RECTS } from "../../shared/obstacles.js";
@@ -76,6 +76,7 @@ export class ArenaScene extends Phaser.Scene {
       this.playerViews.set(id, {
         sprite, label, lastX: player.x, lastY: player.y, walkUntil: 0,
         lastHp: player.hp, lastAlive: player.alive, flashUntil: 0, jitterUntil: 0,
+        wasDashing: false, nextTrailAt: 0,
       });
     });
     callbacks.onRemove("players", (_player, id) => {
@@ -141,6 +142,7 @@ export class ArenaScene extends Phaser.Scene {
       view.sprite.setAlpha(player.alive ? 1 : 0.25);
       this.updateWalk(view, player, x, y, now);
       this.updateFlash(view, now);
+      this.updateDash(view, player, isSelf, now);
       view.label.setPosition(Math.round(x), headY - 4).setDepth(feetY + 0.5);
 
       if (player.alive) this.drawHpBar(x, headY, player.hp / PLAYER_MAX_HP);
@@ -227,6 +229,30 @@ export class ArenaScene extends Phaser.Scene {
     const fx = this.add.sprite(x, y, "explosion").setScale(scale).setDepth(1001);
     fx.play(key);
     fx.once("animationcomplete", () => fx.destroy());
+  }
+
+  /**
+   * 衝刺：開始時播音效，衝刺中留下殘影。
+   * 自己讀預測值（按下就立刻有反應），其他人讀伺服器狀態。
+   */
+  updateDash(view, player, isSelf, now) {
+    const dashTicks = isSelf ? this.predict.value(player, "dashTicks") : player.dashTicks;
+    const dashing = dashTicks > 0 && player.alive;
+
+    if (dashing && !view.wasDashing) {
+      this.playSfx(theme.skillSounds[DASH_INDEX]?.cast, isSelf ? 1 : theme.othersVolume);
+    }
+    view.wasDashing = dashing;
+
+    if (dashing && now >= view.nextTrailAt) {
+      const { everyMs, fadeMs, alpha } = theme.dashTrail;
+      view.nextTrailAt = now + everyMs;
+      const s = view.sprite;
+      const ghost = this.add.image(s.x, s.y, s.texture.key, s.frame.name)
+        .setOrigin(0.5, 1).setFlipX(s.flipX).setDepth(s.depth - 0.1).setAlpha(alpha)
+        .setTint(0x9fdcff).setTintMode(Phaser.TintModes.FILL);
+      this.tweens.add({ targets: ghost, alpha: 0, duration: fadeMs, onComplete: () => ghost.destroy() });
+    }
   }
 
   /** 播音效；靜音中或檔案沒載入成功就略過 */

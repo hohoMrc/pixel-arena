@@ -35,7 +35,8 @@ async function main() {
   // 自己的角色：先在本地預測移動（手感即時），伺服器結果回來再修正
   predict.reconciler(self, {
     input: netInput,
-    fields: ["x", "y", "vx", "vy"],
+    // stepEntity 會讀寫的欄位都要列出來，預測才完整（面向、衝刺狀態、衝刺冷卻）
+    fields: ["x", "y", "vx", "vy", "faceX", "faceY", "dashTicks", "dashCd"],
     step: (ctx, predicted, command) => stepEntity(predicted, command, ctx.dt),
   });
 

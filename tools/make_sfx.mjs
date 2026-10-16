@@ -80,6 +80,8 @@ const SOUNDS = {
   explode_big: () => synth({ duration: 0.6, wave: "noise", freq: [1600, 120], decay: 4, lowpass: [0.6, 0.06] }),
   // 沒打中，冒煙
   fizzle: () => synth({ duration: 0.12, wave: "noise", freq: [5000, 2000], decay: 7, lowpass: [0.25, 0.08] }),
+  // 衝刺：往上滑的「咻」
+  dash: () => synth({ duration: 0.18, wave: "noise", freq: [1500, 7000], attack: 0.03, decay: 5, lowpass: [0.15, 0.5] }),
   // 自己被打中
   hurt: () => synth({ duration: 0.14, wave: "square", freq: [330, 120], decay: 4, lowpass: [0.4, 0.3] }),
   // 死亡：往下的琶音

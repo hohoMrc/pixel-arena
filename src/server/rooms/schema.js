@@ -17,8 +17,10 @@ export const Player = schema({
   y: t.number(),
   vx: t.number(),
   vy: t.number(),
-  faceX: t.int8(),   // 面向，決定技能方向
+  faceX: t.int8(),   // 面向，決定技能和衝刺方向
   faceY: t.int8(),
+  dashTicks: t.uint8(), // 衝刺剩下幾個 tick（> 0 = 衝刺中，無敵）
+  dashCd: t.uint8(),    // 衝刺冷卻剩下幾個 tick
   hp: t.uint8(),
   alive: t.boolean(),
   kills: t.uint16(),

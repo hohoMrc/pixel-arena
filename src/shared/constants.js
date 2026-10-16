@@ -18,6 +18,7 @@ export const RESPAWN_TICKS = 60;
 /**
  * 技能清單。下方操作區的技能按鈕依這個陣列自動產生。
  * 輸入裡的 skill 值 = 陣列索引 + 1（0 代表沒放技能）。
+ * type："projectile"（預設，發射飛行物）或 "dash"（衝刺，在 shared/movement.js 處理）。
  * texture 對應 client/theme.js 的素材 key；impactScale 是命中爆炸的放大倍數（請用整數，像素才不會糊）。
  */
 export const SKILLS = [
@@ -41,7 +42,18 @@ export const SKILLS = [
     cooldownTicks: 90,   // 3 秒
     lifetimeTicks: 60,
   },
+  {
+    name: "衝刺",
+    type: "dash",
+    speed: 460,          // 衝刺速度（單位／秒），一般移動是 PLAYER_SPEED
+    ticks: 6,            // 持續幾個 tick（6 = 0.2 秒，約衝 92 單位）
+    cooldownTicks: 60,   // 2 秒
+    invulnerable: true,  // 衝刺中不會被技能打到
+  },
 ];
+
+/** 衝刺在 SKILLS 裡的索引（沒有衝刺技能時是 -1） */
+export const DASH_INDEX = SKILLS.findIndex((s) => s.type === "dash");
 
 /**
  * 障礙物（石柱）。座標是「地面佔地」的中心點，w/h 是佔地大小，會擋人也會擋技能。

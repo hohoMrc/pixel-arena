@@ -47,12 +47,16 @@ export const theme = {
     hurt:             "assets/sfx/hurt.wav",
     death:            "assets/sfx/death.wav",
     respawn:          "assets/sfx/respawn.wav",
+    dash:             "assets/sfx/dash.wav",
   },
   /** 每個技能（對應 SKILLS 的順序）施放和命中時播哪個音效 */
   skillSounds: [
     { cast: "cast_fireball", hit: "explode_small" },
     { cast: "cast_bigfireball", hit: "explode_big" },
+    { cast: "dash" },
   ],
+  /** 衝刺殘影：每幾毫秒留一個、殘影多久消失 */
+  dashTrail: { everyMs: 30, fadeMs: 220, alpha: 0.5 },
   /** 別人的聲音（施放、死亡）音量，自己的是 1 */
   othersVolume: 0.5,
 
@@ -66,7 +70,7 @@ export const theme = {
   walkFrameRate: 8,
 
   // 技能按鈕上的圖示（文字或 emoji；之後也可以改成圖片）
-  skillIcons: ["🔥", "💥"],
+  skillIcons: ["🔥", "💥", "💨"],
 };
 
 export const playerTextureKey = (skin) => `player${skin}`;

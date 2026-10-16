@@ -4,13 +4,16 @@ import { stepEntity } from "../../shared/movement.js";
 import { circleHitsObstacle } from "../../shared/obstacles.js";
 import {
   TICK_RATE, ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_MAX_HP,
-  RESPAWN_TICKS, SKILLS, SPAWN_POINTS, MAX_PLAYERS,
+  RESPAWN_TICKS, SKILLS, DASH_INDEX, SPAWN_POINTS, MAX_PLAYERS,
 } from "../../shared/constants.js";
 
 /**
  * 對戰房間：伺服器說了算。
  * 客戶端只送輸入，移動、命中、扣血、復活全部在這裡計算。
  */
+/** 死亡時用的空輸入 */
+const IDLE_INPUT = { moveX: 0, moveY: 0, skill: 0 };
+
 export class ArenaRoom extends Room {
   maxClients = MAX_PLAYERS;
   state = new ArenaState();
@@ -42,7 +45,7 @@ export class ArenaRoom extends Room {
       name,
       skin: index % SPAWN_POINTS.length,
       x: spawn.x, y: spawn.y, vx: 0, vy: 0,
-      faceX: spawn.x < ARENA_WIDTH / 2 ? 1 : -1, faceY: 0,
+      faceX: spawn.x < ARENA_WIDTH / 2 ? 1 : -1, faceY: 0, dashTicks: 0, dashCd: 0,
       hp: PLAYER_MAX_HP, alive: true, kills: 0, deaths: 0,
     }));
     this.meta.set(client.sessionId, { spawn, lastCastTick: SKILLS.map(() => -Infinity), respawnTick: 0 });
@@ -63,14 +66,9 @@ export class ArenaRoom extends Room {
       if (!channel) continue;
 
       for (const input of channel) {
-        if (!player.alive) continue; // 死亡時丟棄輸入
-        stepEntity(player, input, ctx.dt);
-
-        if (input.moveX !== 0 || input.moveY !== 0) {
-          player.faceX = input.moveX;
-          player.faceY = input.moveY;
-        }
-        if (input.skill > 0) this.tryCastSkill(id, player, input.skill - 1);
+        // 死亡時當作沒有輸入，但仍要跑 stepEntity（冷卻倒數），才會和客戶端預測一致
+        stepEntity(player, player.alive ? input : IDLE_INPUT, ctx.dt);
+        if (player.alive && input.skill > 0) this.tryCastSkill(id, player, input.skill - 1);
       }
     }
 
@@ -81,15 +79,16 @@ export class ArenaRoom extends Room {
     for (const [id, player] of this.state.players) {
       const meta = this.meta.get(id);
       if (!player.alive && this.tick >= meta.respawnTick) {
-        Object.assign(player, { x: meta.spawn.x, y: meta.spawn.y, vx: 0, vy: 0, hp: PLAYER_MAX_HP, alive: true });
+        Object.assign(player, { x: meta.spawn.x, y: meta.spawn.y, vx: 0, vy: 0, hp: PLAYER_MAX_HP, alive: true, dashTicks: 0, dashCd: 0 });
       }
     }
   }
 
   tryCastSkill(id, player, skillIndex) {
     const skill = SKILLS[skillIndex];
+    if (!skill || skill.type === "dash") return; // 衝刺在 stepEntity 處理
     const meta = this.meta.get(id);
-    if (!skill || this.tick - meta.lastCastTick[skillIndex] < skill.cooldownTicks) return;
+    if (this.tick - meta.lastCastTick[skillIndex] < skill.cooldownTicks) return;
     meta.lastCastTick[skillIndex] = this.tick;
 
     const len = Math.hypot(player.faceX, player.faceY) || 1;
@@ -133,6 +132,7 @@ export class ArenaRoom extends Room {
     const radius = SKILLS[p.skill].radius;
     for (const [id, player] of this.state.players) {
       if (id === p.owner || !player.alive) continue;
+      if (player.dashTicks > 0 && SKILLS[DASH_INDEX]?.invulnerable) continue; // 衝刺中閃過
       if (Math.hypot(player.x - p.x, player.y - p.y) <= PLAYER_HALF + radius) {
         return { id, player };
       }
@@ -145,6 +145,7 @@ export class ArenaRoom extends Room {
     if (target.hp > 0) return;
 
     target.alive = false;
+    target.dashTicks = 0;
     target.deaths++;
     this.meta.get(targetId).respawnTick = this.tick + RESPAWN_TICKS;
 
