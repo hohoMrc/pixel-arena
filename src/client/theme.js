@@ -12,6 +12,10 @@ export const theme = {
 
   assets: {
     floor:       { path: "assets/floor.png",       size: [64, 64], color: 0x2e3346 },
+    // 場地外框：上方是牆的正面（有高度，角色頭會疊在上面），左右下是牆頂
+    // 想改成河流、樹叢等，換這兩張圖即可（需可無縫拼接）
+    wallFace:    { path: "assets/wall_face.png",   size: [64, 64], color: 0x55607a },
+    wallTop:     { path: "assets/wall_top.png",    size: [64, 64], color: 0x4a5878 },
     fireball:    { path: "assets/fireball.png",    size: [17, 11], color: 0xff8a3d },
     bigfireball: { path: "assets/bigfireball.png", size: [39, 23], color: 0xff4d2e },
     // 角色外觀，依加入順序分配（skin 0~3）。32×40，面朝右，腳貼齊圖片底部
@@ -25,6 +29,9 @@ export const theme = {
     player2_walk: { path: "assets/player2_walk.png", sheet: [32, 40] },
     player3_walk: { path: "assets/player3_walk.png", sheet: [32, 40] },
   },
+
+  /** 外框厚度（像素）。上方要夠高，角色走到最上面時頭才不會被切掉 */
+  border: { top: 64, side: 16, bottom: 16 },
 
   /** 走路動畫每秒幾格 */
   walkFrameRate: 8,

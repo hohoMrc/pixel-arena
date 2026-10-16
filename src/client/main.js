@@ -44,8 +44,9 @@ async function main() {
   const game = new Phaser.Game({
     type: Phaser.AUTO,
     parent: "game",
-    width: ARENA_WIDTH,
-    height: ARENA_HEIGHT,
+    // 畫面 = 場地 + 四周外框
+    width: ARENA_WIDTH + theme.border.side * 2,
+    height: ARENA_HEIGHT + theme.border.top + theme.border.bottom,
     backgroundColor: theme.backgroundColor,
     pixelArt: true,
     scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },

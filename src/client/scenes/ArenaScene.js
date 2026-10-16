@@ -7,6 +7,18 @@ import { createMissingTextures } from "../placeholders.js";
 /** 停下來多久後才切回站立圖（ms），避免插值的小停頓讓動畫一直閃 */
 const WALK_HOLD_MS = 120;
 
+/** 被打中的回饋。數值可以直接調 */
+const HIT_FEEDBACK = {
+  flashMs: 90,          // 角色閃白多久
+  jitterMs: 150,        // 角色原地抖動多久
+  jitterPx: 1,          // 抖動幅度（像素）
+  // 只有「自己」被打中時才震鏡頭和手機
+  shake: { ms: 140, intensity: 0.008 },
+  deathShake: { ms: 260, intensity: 0.018 },
+  vibrateMs: 40,        // 手機震動（Android 支援，iPhone Safari 不支援）
+  deathVibrateMs: [60, 40, 90],
+};
+
 /**
  * 對戰場景：只負責「畫出伺服器狀態」和「送出輸入」。
  * 遊戲規則都在 server/rooms/ArenaRoom.js。
@@ -19,7 +31,7 @@ export class ArenaScene extends Phaser.Scene {
   /** @param {{ room, predict, netInput, controls }} data 由 main.js 傳入 */
   init(data) {
     Object.assign(this, data);
-    this.playerViews = new Map();     // sessionId → { sprite, label, lastX, lastY, walkUntil }
+    this.playerViews = new Map();     // sessionId → { sprite, label, lastX, lastY, walkUntil, lastHp, flashUntil, jitterUntil }
     this.projectileViews = new Map(); // projectileId → sprite
   }
 
@@ -42,6 +54,7 @@ export class ArenaScene extends Phaser.Scene {
     this.createWalkAnimations();
 
     this.add.tileSprite(0, 0, ARENA_WIDTH, ARENA_HEIGHT, "floor").setOrigin(0);
+    this.createBorder();
     this.bars = this.add.graphics().setDepth(1000); // 血條統一畫在最上層
     this.deadText = this.add.text(ARENA_WIDTH / 2, ARENA_HEIGHT / 2, "復活中…", {
       fontFamily: "monospace", fontSize: "12px", color: "#ffffff", resolution: 4,
@@ -56,7 +69,10 @@ export class ArenaScene extends Phaser.Scene {
         fontFamily: "monospace", fontSize: "8px", color: id === this.room.sessionId ? "#ffe066" : "#ffffff",
         resolution: 4,
       }).setOrigin(0.5, 1);
-      this.playerViews.set(id, { sprite, label, lastX: player.x, lastY: player.y, walkUntil: 0 });
+      this.playerViews.set(id, {
+        sprite, label, lastX: player.x, lastY: player.y, walkUntil: 0,
+        lastHp: player.hp, flashUntil: 0, jitterUntil: 0,
+      });
     });
     callbacks.onRemove("players", (_player, id) => {
       const view = this.playerViews.get(id);
@@ -101,13 +117,19 @@ export class ArenaScene extends Phaser.Scene {
       const x = this.predict.value(player, "x");
       const y = this.predict.value(player, "y");
 
+      // 血量變少 = 被打中（伺服器判定，所以每個玩家的畫面都會看到）
+      if (player.hp < view.lastHp) this.onHit(view, id === this.room.sessionId, player.hp === 0, now);
+      view.lastHp = player.hp;
+
       const feetY = Math.round(y + PLAYER_HALF);
       const headY = feetY - view.sprite.height;
-      view.sprite.setPosition(Math.round(x), feetY);
+      const jitter = now < view.jitterUntil ? Math.round((Math.random() * 2 - 1) * HIT_FEEDBACK.jitterPx) : 0;
+      view.sprite.setPosition(Math.round(x) + jitter, feetY);
       view.sprite.setFlipX(player.faceX < 0);
       view.sprite.setDepth(y); // 越下面的越前面
       view.sprite.setAlpha(player.alive ? 1 : 0.25);
       this.updateWalk(view, player, x, y, now);
+      this.updateFlash(view, now);
       view.label.setPosition(Math.round(x), headY - 4).setDepth(y + 0.5);
 
       if (player.alive) this.drawHpBar(x, headY, player.hp / PLAYER_MAX_HP);
@@ -121,6 +143,49 @@ export class ArenaScene extends Phaser.Scene {
     }
 
     this.deadText.setVisible(self ? !self.alive : false);
+  }
+
+  /**
+   * 場地外框。遊戲座標不變（場地仍是 0~ARENA），外框畫在負座標，
+   * 再把鏡頭往左上捲，讓外框出現在畫面裡。
+   */
+  createBorder() {
+    const { top, side, bottom } = theme.border;
+    const fullH = top + ARENA_HEIGHT + bottom;
+    this.cameras.main.setScroll(-side, -top);
+
+    // 角色的深度 = y（>0），外框用負深度，角色的頭才會疊在牆上
+    this.add.tileSprite(-side, -top, ARENA_WIDTH + side * 2, top, "wallFace").setOrigin(0).setDepth(-2);
+    this.add.tileSprite(-side, -top, side, fullH, "wallTop").setOrigin(0).setDepth(-1);
+    this.add.tileSprite(ARENA_WIDTH, -top, side, fullH, "wallTop").setOrigin(0).setDepth(-1);
+    this.add.tileSprite(0, ARENA_HEIGHT, ARENA_WIDTH, bottom, "wallTop").setOrigin(0).setDepth(-1);
+
+    // 牆腳陰影，讓邊界更清楚
+    const shadow = this.add.graphics().setDepth(-0.5);
+    shadow.fillStyle(0x000000, 0.35).fillRect(0, 0, ARENA_WIDTH, 3);
+    shadow.fillStyle(0x000000, 0.15).fillRect(0, 3, ARENA_WIDTH, 3);
+    shadow.fillStyle(0x000000, 0.3).fillRect(0, 0, 2, ARENA_HEIGHT).fillRect(ARENA_WIDTH - 2, 0, 2, ARENA_HEIGHT);
+    shadow.fillStyle(0x000000, 0.4).fillRect(-side, ARENA_HEIGHT, ARENA_WIDTH + side * 2, 1);
+  }
+
+  /** 被打中：所有人都看得到閃白和抖動；自己被打中再加鏡頭震動和手機震動 */
+  onHit(view, isSelf, died, now) {
+    view.flashUntil = now + HIT_FEEDBACK.flashMs;
+    view.jitterUntil = now + HIT_FEEDBACK.jitterMs;
+    if (!isSelf) return;
+
+    const shake = died ? HIT_FEEDBACK.deathShake : HIT_FEEDBACK.shake;
+    this.cameras.main.shake(shake.ms, shake.intensity);
+    navigator.vibrate?.(died ? HIT_FEEDBACK.deathVibrateMs : HIT_FEEDBACK.vibrateMs);
+  }
+
+  updateFlash(view, now) {
+    const flashing = now < view.flashUntil;
+    if (flashing && view.sprite.tintMode !== Phaser.TintModes.FILL) {
+      view.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
+    } else if (!flashing && view.sprite.tintMode === Phaser.TintModes.FILL) {
+      view.sprite.clearTint();
+    }
   }
 
   /** 每個角色外觀一組走路動畫（key 跟圖片同名） */
