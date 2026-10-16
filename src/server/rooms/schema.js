@@ -37,6 +37,10 @@ export const Projectile = schema({
 });
 
 export const ArenaState = schema({
+  phase: t.string(),       // "waiting" | "countdown" | "playing" | "ended"
+  countdown: t.uint8(),    // 倒數 / 結算剩幾秒
+  winner: t.string(),      // 獲勝者的 sessionId（ended 時）
+  killsToWin: t.uint8(),
   players: t.map(Player),
   projectiles: t.map(Projectile),
 });

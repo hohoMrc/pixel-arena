@@ -15,6 +15,14 @@ export const PLAYER_MAX_HP = 100;
 /** 死亡後幾個 tick 復活（60 = 2 秒） */
 export const RESPAWN_TICKS = 60;
 
+/** 一局的規則 */
+export const ROUND = {
+  killsToWin: 5,        // 先拿到幾殺獲勝
+  minPlayers: 2,        // 幾個人以上才開始（不到就是等待／練習）
+  countdownTicks: 90,   // 開局倒數（90 = 3 秒）
+  endTicks: 150,        // 結算畫面停留（150 = 5 秒）
+};
+
 /**
  * 技能清單。下方操作區的技能按鈕依這個陣列自動產生。
  * 輸入裡的 skill 值 = 陣列索引 + 1（0 代表沒放技能）。

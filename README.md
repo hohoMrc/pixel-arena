@@ -17,6 +17,12 @@ npm run dev
 - 手機（同一個 Wi-Fi）：打開終端機顯示的 `Network: http://192.168.x.x:5173`
 - 鍵盤：WASD／方向鍵移動，J 或空白鍵放火球，K 放爆炎，L 或 Shift 衝刺
 
+## 對戰規則
+
+- 2 人以上開始倒數 3 秒，先拿到 5 殺的獲勝，結算 5 秒後自動開下一局
+- 只有 1 人時是練習模式，可以自由走動、放技能，不計分
+- 規則數值在 `src/shared/constants.js` 的 `ROUND`
+
 ## 專案結構
 
 ```
@@ -26,7 +32,7 @@ src/
     movement.js        移動邏輯（伺服器和客戶端預測跑同一支）
   server/
     app.config.js      伺服器設定
-    rooms/ArenaRoom.js 對戰規則：移動、技能、命中、復活
+    rooms/ArenaRoom.js 對戰規則：移動、技能、命中、復活、一局的流程
     rooms/schema.js    同步給客戶端的資料結構
   client/
     theme.js           ★ 主題：素材路徑、顏色、技能圖示（換風格改這裡）

@@ -47,6 +47,7 @@ html, body {
 }
 #score { flex: 1; display: flex; gap: 10px; overflow: hidden; white-space: nowrap; }
 #score .me { color: var(--accent); }
+#score .goal { color: var(--text); }
 #share, #mute {
   font: inherit;
   color: var(--text);
@@ -62,9 +63,42 @@ html, body {
 
 /* 遊戲畫面佔剩下空間，Phaser 會等比縮放到這個框裡 */
 #game {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
+}
+
+/* 遊戲畫面中間的提示（等待、倒數、勝負） */
+#overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  pointer-events: none; /* 不擋住遊戲畫面的操作 */
+  text-shadow: 0 2px 0 #000, 0 0 8px rgba(0, 0, 0, 0.8);
+}
+#overlay[hidden] { display: none; }
+#overlay.waiting { background: rgba(10, 11, 18, 0.35); }
+#overlay.result { background: rgba(10, 11, 18, 0.7); }
+#overlay .title { font-size: 26px; font-weight: bold; }
+#overlay .big { font-size: 72px; font-weight: bold; color: var(--accent); }
+#overlay .sub { font-size: 13px; color: var(--muted); line-height: 1.6; }
+#overlay.win .title { color: var(--accent); }
+#overlay.lose .title { color: #ff8a8a; }
+#overlay table { border-collapse: collapse; font-size: 14px; }
+#overlay td { padding: 3px 10px; }
+#overlay tr.me { color: var(--accent); }
+/* 「開始！」放大後淡出 */
+#overlay.go .big { animation: go 0.8s ease-out forwards; }
+@keyframes go {
+  from { transform: scale(0.6); opacity: 1; }
+  to { transform: scale(1.4); opacity: 0; }
 }
 #game canvas { image-rendering: pixelated; }
 

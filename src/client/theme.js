@@ -48,6 +48,10 @@ export const theme = {
     death:            "assets/sfx/death.wav",
     respawn:          "assets/sfx/respawn.wav",
     dash:             "assets/sfx/dash.wav",
+    beep:             "assets/sfx/beep.wav",
+    go:               "assets/sfx/go.wav",
+    win:              "assets/sfx/win.wav",
+    lose:             "assets/sfx/lose.wav",
   },
   /** 每個技能（對應 SKILLS 的順序）施放和命中時播哪個音效 */
   skillSounds: [

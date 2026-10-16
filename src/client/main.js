@@ -6,6 +6,7 @@ import { theme } from "./theme.js";
 import { joinArena } from "./network.js";
 import { Controls } from "./controls.js";
 import { ArenaScene } from "./scenes/ArenaScene.js";
+import { escapeHtml } from "./escapeHtml.js";
 import "./style.css";
 
 const $ = (id) => document.getElementById(id);
@@ -102,8 +103,9 @@ function setupHud(room) {
   setInterval(() => {
     const rows = [...room.state.players.entries()]
       .sort(([, a], [, b]) => b.kills - a.kills)
-      .map(([id, p]) => `<span class="${id === room.sessionId ? "me" : ""}">${p.name} ${p.kills}/${p.deaths}</span>`);
-    $("score").innerHTML = rows.join("");
+      .map(([id, p]) => `<span class="${id === room.sessionId ? "me" : ""}">${escapeHtml(p.name)} ${p.kills}/${p.deaths}</span>`);
+    const goal = room.state.phase === "waiting" ? "練習中" : `${room.state.killsToWin} 殺獲勝`;
+    $("score").innerHTML = `<span class="goal">${goal}</span>` + rows.join("");
   }, 300);
 
   room.onLeave(() => (statusEl.textContent = "已斷線，請重新整理"));

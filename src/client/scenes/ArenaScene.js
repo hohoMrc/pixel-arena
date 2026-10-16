@@ -4,6 +4,7 @@ import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_MAX_HP, SKILLS, DASH_IND
 import { theme, playerTextureKey, walkTextureKey } from "../theme.js";
 import { createMissingTextures } from "../placeholders.js";
 import { OBSTACLE_RECTS } from "../../shared/obstacles.js";
+import { RoundOverlay } from "../roundOverlay.js";
 
 /** 停下來多久後才切回站立圖（ms），避免插值的小停頓讓動畫一直閃 */
 const WALK_HOLD_MS = 120;
@@ -99,6 +100,7 @@ export class ArenaScene extends Phaser.Scene {
     });
 
     this.room.onMessage("impact", (impact) => this.spawnImpact(impact));
+    this.roundOverlay = new RoundOverlay(document.getElementById("overlay"), this.room, (key) => this.playSfx(key));
   }
 
   update() {
@@ -107,14 +109,17 @@ export class ArenaScene extends Phaser.Scene {
     // predict.tick 回傳這一幀該跑幾個固定 tick，每個 tick 送一次輸入
     const steps = this.predict.tick(now);
     const self = this.room.state.players.get(this.room.sessionId);
+    // 死亡、倒數、結算時送空輸入（伺服器也會忽略），預測才不會偏掉
+    const { phase } = this.room.state;
+    const canAct = (self?.alive ?? false) && phase !== "countdown" && phase !== "ended";
     for (let i = 0; i < steps; i++) {
       const cmd = this.controls.read();
-      const alive = self?.alive ?? false;
-      this.netInput.data.moveX = alive ? cmd.moveX : 0;
-      this.netInput.data.moveY = alive ? cmd.moveY : 0;
-      this.netInput.data.skill = alive ? cmd.skill : 0;
+      this.netInput.data.moveX = canAct ? cmd.moveX : 0;
+      this.netInput.data.moveY = canAct ? cmd.moveY : 0;
+      this.netInput.data.skill = canAct ? cmd.skill : 0;
       this.netInput.send();
     }
+    this.roundOverlay.update();
     this.controls.updateCooldowns(now);
 
     this.bars.clear();
@@ -155,7 +160,8 @@ export class ArenaScene extends Phaser.Scene {
       ).setDepth(this.predict.value(p, "y") + 0.1); // 跟角色、柱子一樣依 y 排前後
     }
 
-    this.deadText.setVisible(self ? !self.alive : false);
+    // 結算、倒數時由中間的提示說明狀態，不顯示「復活中」
+    this.deadText.setVisible(!!self && !self.alive && (phase === "playing" || phase === "waiting"));
   }
 
   /**

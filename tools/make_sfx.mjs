@@ -80,6 +80,17 @@ const SOUNDS = {
   explode_big: () => synth({ duration: 0.6, wave: "noise", freq: [1600, 120], decay: 4, lowpass: [0.6, 0.06] }),
   // 沒打中，冒煙
   fizzle: () => synth({ duration: 0.12, wave: "noise", freq: [5000, 2000], decay: 7, lowpass: [0.25, 0.08] }),
+  // 倒數：3、2、1 的「嗶」和開始的高音
+  beep: () => synth({ duration: 0.12, wave: "square", freq: [660, 660], decay: 2, lowpass: [0.3, 0.3] }),
+  go: () => synth({ duration: 0.35, wave: "square", freq: [1320, 1320], decay: 3, lowpass: [0.3, 0.3] }),
+  // 勝利：往上的大三和弦琶音，最後一個音拉長
+  win: () => concat(
+    ...[523, 659, 784, 1047].map((f, i) => synth({ duration: i === 3 ? 0.6 : 0.11, wave: "square", freq: [f, f], decay: i === 3 ? 3 : 1, lowpass: [0.3, 0.3], vibrato: i === 3 ? 6 : 0 })),
+  ),
+  // 失敗：往下的小調
+  lose: () => concat(
+    ...[440, 392, 330, 262].map((f, i) => synth({ duration: i === 3 ? 0.55 : 0.16, wave: "triangle", freq: [f, f * 0.98], decay: i === 3 ? 4 : 1.2 })),
+  ),
   // 衝刺：往上滑的「咻」
   dash: () => synth({ duration: 0.18, wave: "noise", freq: [1500, 7000], attack: 0.03, decay: 5, lowpass: [0.15, 0.5] }),
   // 自己被打中
