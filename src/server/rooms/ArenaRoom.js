@@ -118,6 +118,8 @@ export class ArenaRoom extends Room {
 
       if (target) this.applyDamage(target.id, target.player, p.owner, SKILLS[p.skill].damage);
       if (target || outOfArena || expired) {
+        // 通知所有人播特效：hit = 打中人（爆炸），否則是撞牆或時間到（冒煙）
+        this.broadcast("impact", { x: Math.round(p.x), y: Math.round(p.y), skill: p.skill, hit: !!target });
         this.state.projectiles.delete(projectileId);
         this.projectileExpire.delete(projectileId);
       }

@@ -52,6 +52,7 @@ export class ArenaScene extends Phaser.Scene {
   create() {
     createMissingTextures(this);
     this.createWalkAnimations();
+    this.createImpactAnimations();
 
     this.add.tileSprite(0, 0, ARENA_WIDTH, ARENA_HEIGHT, "floor").setOrigin(0);
     this.createBorder();
@@ -90,6 +91,8 @@ export class ArenaScene extends Phaser.Scene {
       this.projectileViews.get(id)?.destroy();
       this.projectileViews.delete(id);
     });
+
+    this.room.onMessage("impact", (impact) => this.spawnImpact(impact));
   }
 
   update() {
@@ -186,6 +189,23 @@ export class ArenaScene extends Phaser.Scene {
     } else if (!flashing && view.sprite.tintMode === Phaser.TintModes.FILL) {
       view.sprite.clearTint();
     }
+  }
+
+  /** 命中爆炸（完整 5 格）和沒打中的冒煙（最後 2 格） */
+  createImpactAnimations() {
+    if (!this.textures.exists("explosion")) return;
+    const frameRate = theme.impactFrameRate;
+    this.anims.create({ key: "impact-hit", frames: this.anims.generateFrameNumbers("explosion"), frameRate });
+    this.anims.create({ key: "impact-miss", frames: this.anims.generateFrameNumbers("explosion", { start: 3, end: 4 }), frameRate });
+  }
+
+  spawnImpact({ x, y, skill, hit }) {
+    const key = hit ? "impact-hit" : "impact-miss";
+    if (!this.anims.exists(key)) return;
+    const scale = hit ? (SKILLS[skill]?.impactScale ?? 1) : 1;
+    const fx = this.add.sprite(x, y, "explosion").setScale(scale).setDepth(1001);
+    fx.play(key);
+    fx.once("animationcomplete", () => fx.destroy());
   }
 
   /** 每個角色外觀一組走路動畫（key 跟圖片同名） */

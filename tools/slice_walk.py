@@ -1,11 +1,12 @@
-"""把 Codex 產的走路連續圖切成 N 格，還原像素，排成 Phaser 用的 spritesheet。
+"""把 Codex 產的橫排連續動作圖（走路、爆炸…）切成 N 格，還原像素，排成 Phaser 用的 spritesheet。
 用法：
-  python tools/slice_walk.py 原始圖.png 輸出.png --height 36 [--frames 4] [--fw 32 --fh 40]
+  python tools/slice_walk.py 原始圖.png 輸出.png --height 36 [--frames 4] [--fw 32 --fh 40] [--align bottom|center]
 
-  --height  角色站立圖的高度（像素），讓動畫和站立圖一樣大
-- 以透明欄位切出每一格（不假設等距）
-- 所有格子共用同一個像素格大小（以最高那格的高度 / --height 算出），角色大小才一致
-- 每格水平置中、腳貼齊底部
+  --height  最高那一格的高度（像素）。走路動畫填站立圖的高度，動畫和站立圖才會一樣大
+  --align   bottom：腳貼齊底部（角色，預設）；center：置中（爆炸、特效）
+- 以透明欄位切出每一格（不假設等距）。火花、碎煙這類分開的小塊，
+  會自動把間隔最小的區塊合併，直到剩下 --frames 格
+- 所有格子共用同一個像素格大小（以最高那格的高度 / --height 算出），大小才一致
 """
 import argparse, sys
 from PIL import Image
@@ -15,6 +16,7 @@ ap.add_argument("src"); ap.add_argument("dst")
 ap.add_argument("--height", type=int, required=True)
 ap.add_argument("--frames", type=int, default=4)
 ap.add_argument("--fw", type=int, default=32); ap.add_argument("--fh", type=int, default=40)
+ap.add_argument("--align", choices=["bottom", "center"], default="bottom")
 a = ap.parse_args()
 
 img = Image.open(a.src).convert("RGBA")
@@ -29,8 +31,15 @@ for x, filled in enumerate(cols + [False]):
     if filled and start is None: start = x
     if not filled and start is not None:
         spans.append((start, x)); start = None
-# 太窄的雜點區段合併掉，取最寬的 N 段
-spans = [s for s in spans if s[1] - s[0] > W * 0.03]
+# 先丟掉太窄的雜點；格數還是不對，就把間隔最小的相鄰區段合併，直到剩 N 格
+wide = [s for s in spans if s[1] - s[0] > W * 0.03]
+if len(wide) == a.frames:
+    spans = wide
+else:
+    while len(spans) > a.frames:
+        gaps = [spans[i + 1][0] - spans[i][1] for i in range(len(spans) - 1)]
+        i = gaps.index(min(gaps))
+        spans[i:i + 2] = [(spans[i][0], spans[i + 1][1])]
 if len(spans) != a.frames:
     sys.exit(f"偵測到 {len(spans)} 格，預期 {a.frames}：{spans}")
 
@@ -53,7 +62,8 @@ for i, (x0, y0, x1, y1) in enumerate(boxes):
     bb = frame.getbbox(); frame = frame.crop(bb)
     if frame.width > a.fw or frame.height > a.fh:
         sys.exit(f"第 {i} 格 {frame.size} 超出 {a.fw}x{a.fh}")
-    sheet.paste(frame, (i * a.fw + (a.fw - frame.width) // 2, a.fh - frame.height))
+    top = a.fh - frame.height if a.align == "bottom" else (a.fh - frame.height) // 2
+    sheet.paste(frame, (i * a.fw + (a.fw - frame.width) // 2, top))
     print(f"frame {i}: {frame.size}")
 sheet.save(a.dst)
 sheet.resize((sheet.width * 8, sheet.height * 8), Image.NEAREST).save(a.dst.replace(".png", "_x8.png"))

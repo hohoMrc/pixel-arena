@@ -28,10 +28,15 @@ export const theme = {
     player1_walk: { path: "assets/player1_walk.png", sheet: [32, 40] },
     player2_walk: { path: "assets/player2_walk.png", sheet: [32, 40] },
     player3_walk: { path: "assets/player3_walk.png", sheet: [32, 40] },
+    // 技能命中特效：5 格（閃光 → 火球 → 爆炸 → 碎煙 → 淡出），每格 40×40
+    explosion:    { path: "assets/explosion.png",    sheet: [40, 40] },
   },
 
   /** 外框厚度（像素）。上方要夠高，角色走到最上面時頭才不會被切掉 */
   border: { top: 64, side: 16, bottom: 16 },
+
+  /** 命中特效每秒幾格；沒打中時只播最後兩格（冒煙） */
+  impactFrameRate: 16,
 
   /** 走路動畫每秒幾格 */
   walkFrameRate: 8,

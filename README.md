@@ -52,6 +52,7 @@ public/assets/         圖片放這裡
 | `player0_walk.png` ~ `player3_walk.png` | 128×40 | 走路動畫，橫排 4 格（每格 32×40）。沒有這張就不播動畫 |
 | `fireball.png` | 17×11 | 技能 1，朝右，透明背景 |
 | `bigfireball.png` | 39×23 | 技能 2，朝右，透明背景 |
+| `explosion.png` | 200×40 | 命中特效，橫排 5 格（每格 40×40）：閃光 → 火球 → 爆炸 → 碎煙 → 淡出 |
 
 目前的圖是用 Codex 產生的（AI 畫的「大尺寸像素風」再還原成真正的小像素圖），流程和提示詞見 [tools/README.md](tools/README.md)。
 

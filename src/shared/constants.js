@@ -18,12 +18,13 @@ export const RESPAWN_TICKS = 60;
 /**
  * 技能清單。下方操作區的技能按鈕依這個陣列自動產生。
  * 輸入裡的 skill 值 = 陣列索引 + 1（0 代表沒放技能）。
- * texture 對應 client/theme.js 的素材 key。
+ * texture 對應 client/theme.js 的素材 key；impactScale 是命中爆炸的放大倍數（請用整數，像素才不會糊）。
  */
 export const SKILLS = [
   {
     name: "火球",
     texture: "fireball",
+    impactScale: 1,
     speed: 300,          // 飛行速度（單位／秒）
     radius: 5,           // 碰撞半徑
     damage: 20,
@@ -33,6 +34,7 @@ export const SKILLS = [
   {
     name: "爆炎",
     texture: "bigfireball",
+    impactScale: 2,
     speed: 165,
     radius: 10,
     damage: 45,
