@@ -43,6 +43,8 @@ export class ArenaRoom extends Room {
   onCreate() {
     this.state.phase = "waiting";
     this.state.killsToWin = ROUND.killsToWin;
+    // 狀態同步頻率跟模擬頻率一致（預設是 50ms = 每秒 20 次），網路不穩時畫面能拿到更多樣本
+    this.patchRate = 1000 / TICK_RATE;
     this.setFixedTimestep((ctx) => this.step(ctx), TICK_RATE);
   }
 

@@ -11,6 +11,12 @@ import "./style.css";
 
 const $ = (id) => document.getElementById(id);
 
+/**
+ * 其他玩家的插值緩衝（毫秒）。透過 Cloudflare 通道實測：狀態更新偶爾會隔 140ms 才到，
+ * 預設 100ms 不夠，角色會一頓一頓。區網直連可以調小（例如 80）讓畫面更即時。
+ */
+const INTERP_DELAY_MS = 150;
+
 // iPhone 雙指縮放、連點放大，光靠 CSS 擋不住
 document.addEventListener("gesturestart", (e) => e.preventDefault());
 document.addEventListener("dblclick", (e) => e.preventDefault());
@@ -23,9 +29,9 @@ async function main() {
   const room = await joinArena();
   const predict = Predict.get(room);
 
-  // 其他玩家和火球：在最近兩個伺服器快照之間插值，畫面才會順
-  predict.attachAll("players", { mode: "lerp", fields: ["x", "y"], smoothMs: 65 });
-  predict.attachAll("projectiles", { mode: "lerp", fields: ["x", "y"] });
+  // 其他玩家：畫面刻意晚 INTERP_DELAY_MS 顯示，在前後兩個伺服器快照之間插值。
+  // 緩衝要大於網路偶爾的空檔，不然角色會停一下再跳。火球改用推算（ArenaScene），不在這裡插值
+  predict.attachAll("players", { mode: "lerp", fields: ["x", "y"], delay: INTERP_DELAY_MS, smoothMs: 65 });
 
   const netInput = room.input({ mode: "reliable" });
 

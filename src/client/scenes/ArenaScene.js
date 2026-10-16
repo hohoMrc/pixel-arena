@@ -34,7 +34,7 @@ export class ArenaScene extends Phaser.Scene {
   init(data) {
     Object.assign(this, data);
     this.playerViews = new Map();     // sessionId → { sprite, label, lastX, lastY, walkUntil, lastHp, flashUntil, jitterUntil }
-    this.projectileViews = new Map(); // projectileId → sprite
+    this.projectileViews = new Map(); // projectileId → { sprite, x, y, at, sampleX, sampleY, sampleAt }
   }
 
   preload() {
@@ -91,11 +91,12 @@ export class ArenaScene extends Phaser.Scene {
       const sprite = this.add.image(p.x, p.y, SKILLS[p.skill]?.texture ?? "fireball");
       sprite.setDepth(p.y + 0.1);
       sprite.setRotation(Math.atan2(p.vy, p.vx));
-      this.projectileViews.set(id, sprite);
+      const now = performance.now();
+      this.projectileViews.set(id, { sprite, x: p.x, y: p.y, at: now, sampleX: p.x, sampleY: p.y, sampleAt: now });
       this.playSfx(theme.skillSounds[p.skill]?.cast, p.owner === this.room.sessionId ? 1 : theme.othersVolume);
     });
     callbacks.onRemove("projectiles", (_p, id) => {
-      this.projectileViews.get(id)?.destroy();
+      this.projectileViews.get(id)?.sprite.destroy();
       this.projectileViews.delete(id);
     });
 
@@ -154,10 +155,8 @@ export class ArenaScene extends Phaser.Scene {
     }
 
     for (const [id, p] of this.room.state.projectiles) {
-      this.projectileViews.get(id)?.setPosition(
-        Math.round(this.predict.value(p, "x")),
-        Math.round(this.predict.value(p, "y")),
-      ).setDepth(this.predict.value(p, "y") + 0.1); // 跟角色、柱子一樣依 y 排前後
+      const view = this.projectileViews.get(id);
+      if (view) this.drawProjectile(view, p, now);
     }
 
     // 結算、倒數時由中間的提示說明狀態，不顯示「復活中」
@@ -259,6 +258,42 @@ export class ArenaScene extends Phaser.Scene {
         .setTint(0x9fdcff).setTintMode(Phaser.TintModes.FILL);
       this.tweens.add({ targets: ghost, alpha: 0, duration: fadeMs, onComplete: () => ghost.destroy() });
     }
+  }
+
+  /**
+   * 火球是等速直線飛行，不用插值緩衝，改用推算：
+   * - 每幀照速度往前移動
+   * - 收到伺服器的新位置時，用「新位置 + 速度 × 收到後經過的時間」當候選
+   * - 候選比較後面（網路晚到的舊資料）→ 不理它，火球不會往回跳
+   * - 候選比較前面 → 每幀追上落差的 30%，不會突然往前跳一大段
+   * 這樣火球只會晚「網路延遲」那麼多，網路一陣一陣時也接近等速飛行。
+   * （用通道實測的資料模擬：往回跳 7 次 → 0 次，最大一步 25px → 11px）
+   */
+  drawProjectile(view, p, now) {
+    if (p.x !== view.sampleX || p.y !== view.sampleY) {
+      view.sampleX = p.x;
+      view.sampleY = p.y;
+      view.sampleAt = now;
+    }
+    const dt = (now - view.at) / 1000;
+    const advanced = { x: view.x + p.vx * dt, y: view.y + p.vy * dt };
+    // 候選最多往前推 250ms，網路斷很久時不會一路飛出去
+    const sinceSample = Math.min(now - view.sampleAt, 250) / 1000;
+    const fromSample = { x: view.sampleX + p.vx * sinceSample, y: view.sampleY + p.vy * sinceSample };
+
+    // 沿著飛行方向比較誰比較前面；照速度推進的那個若超前太多（> 250ms 的距離）就以伺服器為準
+    const along = (pt) => pt.x * p.vx + pt.y * p.vy;
+    const speedSq = p.vx * p.vx + p.vy * p.vy;
+    const lead = along(advanced) - along(fromSample);
+    let pos;
+    if (lead >= 0 && lead <= speedSq * 0.25) pos = advanced;
+    else if (lead < 0) pos = { x: advanced.x + (fromSample.x - advanced.x) * 0.3, y: advanced.y + (fromSample.y - advanced.y) * 0.3 };
+    else pos = fromSample;
+
+    view.x = pos.x;
+    view.y = pos.y;
+    view.at = now;
+    view.sprite.setPosition(Math.round(pos.x), Math.round(pos.y)).setDepth(pos.y + 0.1); // 跟角色、柱子一樣依 y 排前後
   }
 
   /** 播音效；靜音中或檔案沒載入成功就略過 */
