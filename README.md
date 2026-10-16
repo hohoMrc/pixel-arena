@@ -51,7 +51,7 @@ public/assets/         圖片放這裡
 | `fireball.png` | 17×11 | 技能 1，朝右，透明背景 |
 | `bigfireball.png` | 39×23 | 技能 2，朝右，透明背景 |
 
-目前的圖是用 Codex 產生的（AI 畫的「大尺寸像素風」再還原成真正的小像素圖）。
+目前的圖是用 Codex 產生的（AI 畫的「大尺寸像素風」再還原成真正的小像素圖），流程和提示詞見 [tools/README.md](tools/README.md)。
 
 ## 部署
 
