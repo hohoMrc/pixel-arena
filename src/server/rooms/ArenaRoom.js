@@ -1,6 +1,7 @@
 import { Room } from "colyseus";
 import { ArenaState, Player, PlayerInput, Projectile } from "./schema.js";
 import { stepEntity } from "../../shared/movement.js";
+import { circleHitsObstacle } from "../../shared/obstacles.js";
 import {
   TICK_RATE, ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_MAX_HP,
   RESPAWN_TICKS, SKILLS, SPAWN_POINTS, MAX_PLAYERS,
@@ -113,11 +114,12 @@ export class ArenaRoom extends Room {
       p.y += p.vy * dt;
 
       const outOfArena = p.x < 0 || p.y < 0 || p.x > ARENA_WIDTH || p.y > ARENA_HEIGHT;
+      const blocked = circleHitsObstacle(p.x, p.y, SKILLS[p.skill].radius);
       const expired = this.tick >= this.projectileExpire.get(projectileId);
-      const target = this.findHit(p);
+      const target = blocked ? null : this.findHit(p);
 
       if (target) this.applyDamage(target.id, target.player, p.owner, SKILLS[p.skill].damage);
-      if (target || outOfArena || expired) {
+      if (target || blocked || outOfArena || expired) {
         // 通知所有人播特效：hit = 打中人（爆炸），否則是撞牆或時間到（冒煙）
         this.broadcast("impact", { x: Math.round(p.x), y: Math.round(p.y), skill: p.skill, hit: !!target });
         this.state.projectiles.delete(projectileId);

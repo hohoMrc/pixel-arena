@@ -16,6 +16,8 @@ export const theme = {
     // 想改成河流、樹叢等，換這兩張圖即可（需可無縫拼接）
     wallFace:    { path: "assets/wall_face.png",   size: [64, 64], color: 0x55607a },
     wallTop:     { path: "assets/wall_top.png",    size: [64, 64], color: 0x4a5878 },
+    // 障礙物：底部對齊佔地底部，比角色高才擋得住後面的人
+    pillar:      { path: "assets/pillar.png",      size: [25, 61], color: 0x6b7590 },
     fireball:    { path: "assets/fireball.png",    size: [17, 11], color: 0xff8a3d },
     bigfireball: { path: "assets/bigfireball.png", size: [39, 23], color: 0xff4d2e },
     // 角色外觀，依加入順序分配（skin 0~3）。32×40，面朝右，腳貼齊圖片底部

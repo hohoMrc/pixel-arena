@@ -4,3 +4,5 @@ dist/
 .env*.local
 tools/.venv/
 *_x8.png
+# Colyseus 開發模式的房間暫存
+.devmode.json

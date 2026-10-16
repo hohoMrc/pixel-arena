@@ -48,6 +48,7 @@ public/assets/         圖片放這裡
 | `floor.png` | 64×64 | 地板（會重複鋪滿，需可無縫拼接） |
 | `wall_face.png` | 64×64 | 上方外框：牆的正面，需左右無縫拼接（換成河流、樹叢也可以） |
 | `wall_top.png` | 64×64 | 左右下外框：牆頂，需無縫拼接 |
+| `pillar.png` | 25×61 | 障礙物（石柱），底部對齊地面。位置和佔地大小在 `src/shared/constants.js` 的 `OBSTACLES` |
 | `player0.png` ~ `player3.png` | 32×40 | 角色站立圖，面朝右，腳貼齊底部，透明背景 |
 | `player0_walk.png` ~ `player3_walk.png` | 128×40 | 走路動畫，橫排 4 格（每格 32×40）。沒有這張就不播動畫 |
 | `fireball.png` | 17×11 | 技能 1，朝右，透明背景 |

@@ -43,6 +43,20 @@ export const SKILLS = [
   },
 ];
 
+/**
+ * 障礙物（石柱）。座標是「地面佔地」的中心點，w/h 是佔地大小，會擋人也會擋技能。
+ * 圖片比佔地高（有立體感），畫的時候底部對齊佔地底部。
+ * 調整配置時注意不要擋到出生點。
+ */
+export const OBSTACLE_SIZE = { w: 24, h: 18 };
+export const OBSTACLES = [
+  { x: ARENA_WIDTH / 2, y: ARENA_HEIGHT / 2 },
+  { x: 112, y: 140 },
+  { x: ARENA_WIDTH - 112, y: 140 },
+  { x: 112, y: ARENA_HEIGHT - 140 },
+  { x: ARENA_WIDTH - 112, y: ARENA_HEIGHT - 140 },
+];
+
 /** 出生點，依加入順序輪流使用 */
 export const SPAWN_POINTS = [
   { x: 60, y: 60 },

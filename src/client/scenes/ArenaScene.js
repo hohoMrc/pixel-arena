@@ -3,6 +3,7 @@ import { Callbacks } from "@colyseus/sdk";
 import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_MAX_HP, SKILLS } from "../../shared/constants.js";
 import { theme, playerTextureKey, walkTextureKey } from "../theme.js";
 import { createMissingTextures } from "../placeholders.js";
+import { OBSTACLE_RECTS } from "../../shared/obstacles.js";
 
 /** 停下來多久後才切回站立圖（ms），避免插值的小停頓讓動畫一直閃 */
 const WALK_HOLD_MS = 120;
@@ -57,6 +58,7 @@ export class ArenaScene extends Phaser.Scene {
 
     this.add.tileSprite(0, 0, ARENA_WIDTH, ARENA_HEIGHT, "floor").setOrigin(0);
     this.createBorder();
+    this.createObstacles();
     this.bars = this.add.graphics().setDepth(1000); // 血條統一畫在最上層
     this.deadText = this.add.text(ARENA_WIDTH / 2, ARENA_HEIGHT / 2, "復活中…", {
       fontFamily: "monospace", fontSize: "12px", color: "#ffffff", resolution: 4,
@@ -85,6 +87,7 @@ export class ArenaScene extends Phaser.Scene {
 
     callbacks.onAdd("projectiles", (p, id) => {
       const sprite = this.add.image(p.x, p.y, SKILLS[p.skill]?.texture ?? "fireball");
+      sprite.setDepth(p.y + 0.1);
       sprite.setRotation(Math.atan2(p.vy, p.vx));
       this.projectileViews.set(id, sprite);
       this.playSfx(theme.skillSounds[p.skill]?.cast, p.owner === this.room.sessionId ? 1 : theme.othersVolume);
@@ -134,11 +137,11 @@ export class ArenaScene extends Phaser.Scene {
       const jitter = now < view.jitterUntil ? Math.round((Math.random() * 2 - 1) * HIT_FEEDBACK.jitterPx) : 0;
       view.sprite.setPosition(Math.round(x) + jitter, feetY);
       view.sprite.setFlipX(player.faceX < 0);
-      view.sprite.setDepth(y); // 越下面的越前面
+      view.sprite.setDepth(feetY); // 依腳底位置排前後：越下面的越前面（和柱子同一個基準）
       view.sprite.setAlpha(player.alive ? 1 : 0.25);
       this.updateWalk(view, player, x, y, now);
       this.updateFlash(view, now);
-      view.label.setPosition(Math.round(x), headY - 4).setDepth(y + 0.5);
+      view.label.setPosition(Math.round(x), headY - 4).setDepth(feetY + 0.5);
 
       if (player.alive) this.drawHpBar(x, headY, player.hp / PLAYER_MAX_HP);
     }
@@ -147,7 +150,7 @@ export class ArenaScene extends Phaser.Scene {
       this.projectileViews.get(id)?.setPosition(
         Math.round(this.predict.value(p, "x")),
         Math.round(this.predict.value(p, "y")),
-      ).setDepth(999);
+      ).setDepth(this.predict.value(p, "y") + 0.1); // 跟角色、柱子一樣依 y 排前後
     }
 
     this.deadText.setVisible(self ? !self.alive : false);
@@ -174,6 +177,16 @@ export class ArenaScene extends Phaser.Scene {
     shadow.fillStyle(0x000000, 0.15).fillRect(0, 3, ARENA_WIDTH, 3);
     shadow.fillStyle(0x000000, 0.3).fillRect(0, 0, 2, ARENA_HEIGHT).fillRect(ARENA_WIDTH - 2, 0, 2, ARENA_HEIGHT);
     shadow.fillStyle(0x000000, 0.4).fillRect(-side, ARENA_HEIGHT, ARENA_WIDTH + side * 2, 1);
+  }
+
+  /**
+   * 障礙物：圖片底部對齊佔地底部，深度 = 佔地底部的 y。
+   * 角色深度是自己的 y，所以站在柱子後面（y 較小）會被擋住，站在前面會蓋過柱子。
+   */
+  createObstacles() {
+    for (const r of OBSTACLE_RECTS) {
+      this.add.image((r.left + r.right) / 2, r.bottom, "pillar").setOrigin(0.5, 1).setDepth(r.bottom);
+    }
   }
 
   /** 被打中：所有人都看得到閃白和抖動；自己被打中再加鏡頭震動和手機震動 */

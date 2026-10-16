@@ -1,4 +1,5 @@
 import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_SPEED } from "./constants.js";
+import { obstacleHitByBox } from "./obstacles.js";
 
 const clamp = (value, min, max) => (value < min ? min : value > max ? max : value);
 
@@ -34,8 +35,23 @@ export function stepEntity(entity, input, dt) {
   if (clampedX !== x) vx = 0;
   if (clampedY !== y) vy = 0;
 
-  entity.x = clampedX;
-  entity.y = clampedY;
+  // 障礙物：X、Y 分開檢查，斜著撞到柱子時可以沿著邊滑過去。
+  // 撞到時貼齊柱子邊緣，不會停在半空中
+  let nextX = clampedX;
+  let nextY = clampedY;
+  const hitX = obstacleHitByBox(nextX, entity.y, PLAYER_HALF);
+  if (hitX) {
+    nextX = vx > 0 ? hitX.left - PLAYER_HALF : hitX.right + PLAYER_HALF;
+    vx = 0;
+  }
+  const hitY = obstacleHitByBox(nextX, nextY, PLAYER_HALF);
+  if (hitY) {
+    nextY = vy > 0 ? hitY.top - PLAYER_HALF : hitY.bottom + PLAYER_HALF;
+    vy = 0;
+  }
+
+  entity.x = nextX;
+  entity.y = nextY;
   entity.vx = vx;
   entity.vy = vy;
 }
