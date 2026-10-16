@@ -71,9 +71,25 @@ export class ArenaRoom extends Room {
 
   /** 人數夠了就開始倒數；對戰中人數不夠就回到等待 */
   checkPlayerCount() {
+    this.removeGhostPlayers();
+    if (!this.state.phase) this.state.phase = "waiting";
     const enough = this.state.players.size >= ROUND.minPlayers;
     if (this.state.phase === "waiting" && enough) this.startCountdown();
     else if (!enough && this.state.phase !== "waiting") this.setPhase("waiting");
+  }
+
+  /**
+   * 開發模式重啟伺服器時，Colyseus 會從 .devmode.json 還原房間，
+   * 但只還原同步狀態（state），不會還原 meta（出生點等）。
+   * 這些玩家的連線早就斷了，沒有 meta 的就是這種「幽靈玩家」，直接移除。
+   */
+  removeGhostPlayers() {
+    for (const id of [...this.state.players.keys()]) {
+      if (!this.meta.has(id)) {
+        console.log(`[${this.roomId}] 移除還原留下的玩家 ${this.state.players.get(id)?.name}`);
+        this.state.players.delete(id);
+      }
+    }
   }
 
   setPhase(phase, durationTicks = 0) {
