@@ -1,0 +1,145 @@
+:root {
+  --bg: #14151d;
+  --panel: #1f2130;
+  --panel-edge: #2c2f44;
+  --text: #e8e8f0;
+  --muted: #8a8ca3;
+  --accent: #ffe066;
+  --skill-0: #ff8a3d;
+  --skill-1: #ff4d2e;
+  font-family: "Courier New", ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+  /* 手機上不要縮放、選字、長按選單、點擊高亮 */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 直立版面：上面遊戲、下面操作。桌機時置中成手機寬度 */
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  max-width: 480px;
+  margin: 0 auto;
+  padding-top: env(safe-area-inset-top);
+}
+
+#hud {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+#score { flex: 1; display: flex; gap: 10px; overflow: hidden; white-space: nowrap; }
+#score .me { color: var(--accent); }
+#share {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-edge);
+  border: 0;
+  border-radius: 4px;
+  padding: 4px 10px;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 遊戲畫面佔剩下空間，Phaser 會等比縮放到這個框裡 */
+#game {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+#game canvas { image-rendering: pixelated; }
+
+/* 操作區固定高度 */
+#controls {
+  flex: 0 0 auto;
+  height: clamp(200px, 34dvh, 280px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px calc(16px + env(safe-area-inset-bottom));
+  background: var(--panel);
+  border-top: 2px solid var(--panel-edge);
+}
+
+/* 左：虛擬搖桿 */
+#joystick {
+  position: relative;
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #2a2d40 0 55%, #23263a 56%);
+  border: 3px solid var(--panel-edge);
+  display: grid;
+  place-items: center;
+}
+#knob {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: #4a4f6e;
+  border: 3px solid #6a7096;
+  box-shadow: 0 4px 0 #1a1c28;
+  pointer-events: none;
+  transition: transform 80ms ease-out;
+}
+#joystick.active #knob { transition: none; background: #5b6188; }
+
+/* 右：技能按鈕（依 SKILLS 自動產生），第一個大顆、其餘小顆 */
+#skills {
+  display: grid;
+  grid-template-columns: auto auto;
+  grid-template-rows: auto auto;
+  gap: 12px;
+  align-items: end;
+}
+.skill {
+  --cd: 0;
+  --color: var(--skill-0);
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 3px solid color-mix(in srgb, var(--color) 60%, black);
+  background: color-mix(in srgb, var(--color) 35%, var(--panel));
+  color: var(--text);
+  font: inherit;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 0 #111219;
+  overflow: hidden;
+  touch-action: none;
+}
+.skill-0 { width: 88px; height: 88px; grid-column: 2; grid-row: 1 / span 2; }
+.skill-1 { --color: var(--skill-1); grid-column: 1; grid-row: 2; }
+.skill.pressed { transform: translateY(3px); box-shadow: 0 1px 0 #111219; }
+.skill .icon { font-size: 24px; line-height: 1; }
+.skill-0 .icon { font-size: 32px; }
+.skill .label { font-size: 11px; margin-top: 2px; }
+/* 冷卻遮罩：--cd 從 1 轉到 0 */
+.skill::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: conic-gradient(rgba(0, 0, 0, 0.6) calc(var(--cd) * 360deg), transparent 0);
+  pointer-events: none;
+}

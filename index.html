@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#14151d" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <title>Pixel Arena</title>
+  </head>
+  <body>
+    <div id="app">
+      <!-- 上方：狀態列 + 遊戲畫面 -->
+      <header id="hud">
+        <span id="status">載入中…</span>
+        <div id="score"></div>
+        <button id="share">邀請</button>
+      </header>
+      <main id="game"></main>
+
+      <!-- 下方：操作區（左搖桿、右技能） -->
+      <section id="controls">
+        <div id="joystick"><div id="knob"></div></div>
+        <div id="skills"></div>
+      </section>
+    </div>
+    <script type="module" src="/src/client/main.js"></script>
+  </body>
+</html>

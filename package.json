@@ -1,0 +1,25 @@
+{
+  "name": "pixel-arena",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "像素風即時對戰遊戲（Phaser + Colyseus）",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "build:client": "vite build --mode client",
+    "start": "node dist/server/server.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@colyseus/schema": "^5.0.40",
+    "@colyseus/sdk": "^0.18.5",
+    "colyseus": "^0.18.9",
+    "phaser": "^4.2.1"
+  },
+  "devDependencies": {
+    "vite": "^8.3.4"
+  }
+}

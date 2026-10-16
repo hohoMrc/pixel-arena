@@ -1,0 +1,37 @@
+/**
+ * 主題設定：換風格／換 IP 只要改這個檔案和 public/assets/ 裡的圖片。
+ *
+ * - path：圖片放在 public/ 底下的路徑。檔案不存在時會自動用 placeholder 色塊代替，
+ *   所以可以先玩、之後一張一張補圖。
+ * - size：placeholder 的尺寸，也是建議的原圖尺寸（像素圖請用這個大小或整數倍）。
+ * - color：placeholder 的主色。
+ */
+export const theme = {
+  name: "預設像素風",
+  backgroundColor: "#1d1f2b",
+
+  assets: {
+    floor:       { path: "assets/floor.png",       size: [64, 64], color: 0x2e3346 },
+    fireball:    { path: "assets/fireball.png",    size: [17, 11], color: 0xff8a3d },
+    bigfireball: { path: "assets/bigfireball.png", size: [39, 23], color: 0xff4d2e },
+    // 角色外觀，依加入順序分配（skin 0~3）。32×40，面朝右，腳貼齊圖片底部
+    player0:     { path: "assets/player0.png",     size: [32, 40], color: 0x4fa3ff },
+    player1:     { path: "assets/player1.png",     size: [32, 40], color: 0xff5c7a },
+    player2:     { path: "assets/player2.png",     size: [32, 40], color: 0x5fd17a },
+    player3:     { path: "assets/player3.png",     size: [32, 40], color: 0xffd23f },
+    // 走路動畫：橫排 spritesheet，每格 32×40。沒有這張圖時角色移動就不播動畫
+    player0_walk: { path: "assets/player0_walk.png", sheet: [32, 40] },
+    player1_walk: { path: "assets/player1_walk.png", sheet: [32, 40] },
+    player2_walk: { path: "assets/player2_walk.png", sheet: [32, 40] },
+    player3_walk: { path: "assets/player3_walk.png", sheet: [32, 40] },
+  },
+
+  /** 走路動畫每秒幾格 */
+  walkFrameRate: 8,
+
+  // 技能按鈕上的圖示（文字或 emoji；之後也可以改成圖片）
+  skillIcons: ["🔥", "💥"],
+};
+
+export const playerTextureKey = (skin) => `player${skin}`;
+export const walkTextureKey = (skin) => `player${skin}_walk`;
