@@ -38,6 +38,7 @@ export class ArenaScene extends Phaser.Scene {
   preload() {
     // 找不到的圖片忽略，之後由 placeholder 補上
     this.load.on("loaderror", (file) => console.info(`[theme] 沒有 ${file.src}，使用 placeholder`));
+    for (const [key, path] of Object.entries(theme.sounds)) this.load.audio(key, path);
     for (const [key, asset] of Object.entries(theme.assets)) {
       if (!asset.path) continue;
       if (asset.sheet) {
@@ -72,7 +73,7 @@ export class ArenaScene extends Phaser.Scene {
       }).setOrigin(0.5, 1);
       this.playerViews.set(id, {
         sprite, label, lastX: player.x, lastY: player.y, walkUntil: 0,
-        lastHp: player.hp, flashUntil: 0, jitterUntil: 0,
+        lastHp: player.hp, lastAlive: player.alive, flashUntil: 0, jitterUntil: 0,
       });
     });
     callbacks.onRemove("players", (_player, id) => {
@@ -86,6 +87,7 @@ export class ArenaScene extends Phaser.Scene {
       const sprite = this.add.image(p.x, p.y, SKILLS[p.skill]?.texture ?? "fireball");
       sprite.setRotation(Math.atan2(p.vy, p.vx));
       this.projectileViews.set(id, sprite);
+      this.playSfx(theme.skillSounds[p.skill]?.cast, p.owner === this.room.sessionId ? 1 : theme.othersVolume);
     });
     callbacks.onRemove("projectiles", (_p, id) => {
       this.projectileViews.get(id)?.destroy();
@@ -121,8 +123,11 @@ export class ArenaScene extends Phaser.Scene {
       const y = this.predict.value(player, "y");
 
       // 血量變少 = 被打中（伺服器判定，所以每個玩家的畫面都會看到）
-      if (player.hp < view.lastHp) this.onHit(view, id === this.room.sessionId, player.hp === 0, now);
+      const isSelf = id === this.room.sessionId;
+      if (player.hp < view.lastHp) this.onHit(view, isSelf, player.hp === 0, now);
+      if (player.alive && !view.lastAlive && isSelf) this.playSfx("respawn");
       view.lastHp = player.hp;
+      view.lastAlive = player.alive;
 
       const feetY = Math.round(y + PLAYER_HALF);
       const headY = feetY - view.sprite.height;
@@ -175,7 +180,9 @@ export class ArenaScene extends Phaser.Scene {
   onHit(view, isSelf, died, now) {
     view.flashUntil = now + HIT_FEEDBACK.flashMs;
     view.jitterUntil = now + HIT_FEEDBACK.jitterMs;
+    if (died) this.playSfx("death", isSelf ? 1 : theme.othersVolume);
     if (!isSelf) return;
+    if (!died) this.playSfx("hurt");
 
     const shake = died ? HIT_FEEDBACK.deathShake : HIT_FEEDBACK.shake;
     this.cameras.main.shake(shake.ms, shake.intensity);
@@ -200,12 +207,19 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   spawnImpact({ x, y, skill, hit }) {
+    this.playSfx(hit ? theme.skillSounds[skill]?.hit : "fizzle", hit ? 1 : 0.5);
     const key = hit ? "impact-hit" : "impact-miss";
     if (!this.anims.exists(key)) return;
     const scale = hit ? (SKILLS[skill]?.impactScale ?? 1) : 1;
     const fx = this.add.sprite(x, y, "explosion").setScale(scale).setDepth(1001);
     fx.play(key);
     fx.once("animationcomplete", () => fx.destroy());
+  }
+
+  /** 播音效；靜音中或檔案沒載入成功就略過 */
+  playSfx(key, volume = 1) {
+    if (this.registry.get("muted")) return;
+    if (key && this.cache.audio.exists(key)) this.sound.play(key, { volume });
   }
 
   /** 每個角色外觀一組走路動畫（key 跟圖片同名） */

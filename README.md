@@ -54,6 +54,9 @@ public/assets/         圖片放這裡
 | `bigfireball.png` | 39×23 | 技能 2，朝右，透明背景 |
 | `explosion.png` | 200×40 | 命中特效，橫排 5 格（每格 40×40）：閃光 → 火球 → 爆炸 → 碎煙 → 淡出 |
 
+音效放在 `public/assets/sfx/`（施放、爆炸、冒煙、被打中、死亡、復活），是用 `node tools/make_sfx.mjs`
+合成的 8-bit 音效。要換成其他音效，放入同名的 `.wav`，或修改 `theme.js` 的 `sounds` 路徑。
+
 目前的圖是用 Codex 產生的（AI 畫的「大尺寸像素風」再還原成真正的小像素圖），流程和提示詞見 [tools/README.md](tools/README.md)。
 
 ## 部署

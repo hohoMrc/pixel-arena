@@ -54,12 +54,33 @@ async function main() {
     input: { keyboard: false },
     scene: [],
     callbacks: {
-      postBoot: (game) => game.scene.add("arena", ArenaScene, true, { room, predict, netInput, controls }),
+      postBoot: (game) => {
+        setupMute(game);
+        game.scene.add("arena", ArenaScene, true, { room, predict, netInput, controls });
+      },
     },
   });
 
   // 開發時方便在 console 除錯：__game.scene.getScene("arena")
   if (import.meta.env.DEV) window.__game = game;
+}
+
+/**
+ * 靜音按鈕，設定存在這台裝置的瀏覽器裡。
+ * 不用 Phaser 的 sound.setMute：它用 setValueAtTime(…, 0) 排程，音訊已在跑時 Chrome 不一定套用。
+ * 改成把狀態放在 registry，ArenaScene.playSfx 靜音時直接不播。
+ */
+function setupMute(game) {
+  const btn = $("mute");
+  const apply = (muted) => {
+    game.registry.set("muted", muted);
+    btn.textContent = muted ? "🔇" : "🔊";
+    try { localStorage.setItem("pixel-arena:muted", muted ? "1" : "0"); } catch {}
+  };
+  let saved = false;
+  try { saved = localStorage.getItem("pixel-arena:muted") === "1"; } catch {}
+  apply(saved);
+  btn.addEventListener("click", () => apply(!game.registry.get("muted")));
 }
 
 function setupHud(room) {

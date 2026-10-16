@@ -32,6 +32,28 @@ export const theme = {
     explosion:    { path: "assets/explosion.png",    sheet: [40, 40] },
   },
 
+  /**
+   * 音效：key → 檔案路徑。用 tools/make_sfx.mjs 產生的 8-bit 音效，可直接換成其他 .wav / .mp3。
+   * 檔案不存在時就不播，不會出錯。
+   */
+  sounds: {
+    cast_fireball:    "assets/sfx/cast_fireball.wav",
+    cast_bigfireball: "assets/sfx/cast_bigfireball.wav",
+    explode_small:    "assets/sfx/explode_small.wav",
+    explode_big:      "assets/sfx/explode_big.wav",
+    fizzle:           "assets/sfx/fizzle.wav",
+    hurt:             "assets/sfx/hurt.wav",
+    death:            "assets/sfx/death.wav",
+    respawn:          "assets/sfx/respawn.wav",
+  },
+  /** 每個技能（對應 SKILLS 的順序）施放和命中時播哪個音效 */
+  skillSounds: [
+    { cast: "cast_fireball", hit: "explode_small" },
+    { cast: "cast_bigfireball", hit: "explode_big" },
+  ],
+  /** 別人的聲音（施放、死亡）音量，自己的是 1 */
+  othersVolume: 0.5,
+
   /** 外框厚度（像素）。上方要夠高，角色走到最上面時頭才不會被切掉 */
   border: { top: 64, side: 16, bottom: 16 },
 
