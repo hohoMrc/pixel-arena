@@ -75,6 +75,8 @@ export const theme = {
 
   // 技能按鈕上的圖示（文字或 emoji；之後也可以改成圖片）
   skillIcons: ["🔥", "💥", "💨"],
+  /** 拖曳瞄準時瞄準線的顏色，順序同 SKILLS */
+  aimGuideColors: [0xff8a3d, 0xff4d2e],
 };
 
 export const playerTextureKey = (skin) => `player${skin}`;

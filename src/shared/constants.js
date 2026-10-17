@@ -7,6 +7,12 @@ export const TICK_RATE = 30;
 export const ARENA_WIDTH = 384;
 export const ARENA_HEIGHT = 432;
 
+/**
+ * 輸入的方向（移動、瞄準）用 -INPUT_SCALE ~ INPUT_SCALE 的整數表示，可以是任意角度。
+ * 用整數是為了讓伺服器和客戶端預測拿到一模一樣的數值。
+ */
+export const INPUT_SCALE = 100;
+
 /** 角色碰撞半徑 */
 export const PLAYER_HALF = 9;
 /** 角色移動速度（單位／秒） */

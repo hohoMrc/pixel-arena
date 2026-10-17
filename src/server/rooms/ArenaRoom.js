@@ -4,11 +4,11 @@ import { stepEntity } from "../../shared/movement.js";
 import { circleHitsObstacle } from "../../shared/obstacles.js";
 import {
   TICK_RATE, ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_MAX_HP,
-  RESPAWN_TICKS, SKILLS, DASH_INDEX, SPAWN_POINTS, MAX_PLAYERS, ROUND,
+  RESPAWN_TICKS, SKILLS, DASH_INDEX, SPAWN_POINTS, MAX_PLAYERS, ROUND, INPUT_SCALE,
 } from "../../shared/constants.js";
 
 /** 不能動的時候（死亡、倒數、結算）用的空輸入 */
-const IDLE_INPUT = { moveX: 0, moveY: 0, skill: 0 };
+const IDLE_INPUT = { moveX: 0, moveY: 0, skill: 0, aimX: 0, aimY: 0 };
 
 /**
  * 對戰房間：伺服器說了算。
@@ -27,7 +27,11 @@ export class ArenaRoom extends Room {
   // 每個玩家的輸入緩衝；sanitize 會把超出範圍的值夾回來（防竄改）
   inputs = this.defineInput(PlayerInput, {
     bufferMaxSize: 64,
-    sanitize: { moveX: [-1, 1], moveY: [-1, 1], skill: [0, SKILLS.length] },
+    sanitize: {
+      moveX: [-INPUT_SCALE, INPUT_SCALE], moveY: [-INPUT_SCALE, INPUT_SCALE],
+      aimX: [-INPUT_SCALE, INPUT_SCALE], aimY: [-INPUT_SCALE, INPUT_SCALE],
+      skill: [0, SKILLS.length],
+    },
   });
 
   tick = 0;
@@ -57,7 +61,7 @@ export class ArenaRoom extends Room {
       name,
       skin: index % SPAWN_POINTS.length,
       x: spawn.x, y: spawn.y, vx: 0, vy: 0,
-      faceX: spawn.x < ARENA_WIDTH / 2 ? 1 : -1, faceY: 0, dashTicks: 0, dashCd: 0,
+      faceX: spawn.x < ARENA_WIDTH / 2 ? INPUT_SCALE : -INPUT_SCALE, faceY: 0, dashTicks: 0, dashCd: 0,
       hp: PLAYER_MAX_HP, alive: true, kills: 0, deaths: 0,
     }));
     this.meta.set(client.sessionId, { spawn, lastCastTick: SKILLS.map(() => -Infinity), respawnTick: 0 });
@@ -119,7 +123,7 @@ export class ArenaRoom extends Room {
       const meta = this.meta.get(id);
       Object.assign(player, {
         x: meta.spawn.x, y: meta.spawn.y, vx: 0, vy: 0,
-        faceX: meta.spawn.x < ARENA_WIDTH / 2 ? 1 : -1, faceY: 0, dashTicks: 0, dashCd: 0,
+        faceX: meta.spawn.x < ARENA_WIDTH / 2 ? INPUT_SCALE : -INPUT_SCALE, faceY: 0, dashTicks: 0, dashCd: 0,
         hp: PLAYER_MAX_HP, alive: true, kills: 0, deaths: 0,
       });
       meta.lastCastTick = SKILLS.map(() => -Infinity);
@@ -163,7 +167,7 @@ export class ArenaRoom extends Room {
         // 不能動時當作沒有輸入，但仍要跑 stepEntity（冷卻倒數），才會和客戶端預測一致
         const canAct = player.alive && !frozen;
         stepEntity(player, canAct ? input : IDLE_INPUT, ctx.dt);
-        if (canAct && input.skill > 0) this.tryCastSkill(id, player, input.skill - 1);
+        if (canAct && input.skill > 0) this.tryCastSkill(id, player, input.skill - 1, input);
       }
     }
 
@@ -179,16 +183,14 @@ export class ArenaRoom extends Room {
     }
   }
 
-  tryCastSkill(id, player, skillIndex) {
+  tryCastSkill(id, player, skillIndex, input) {
     const skill = SKILLS[skillIndex];
     if (!skill || skill.type === "dash") return; // 衝刺在 stepEntity 處理
     const meta = this.meta.get(id);
     if (this.tick - meta.lastCastTick[skillIndex] < skill.cooldownTicks) return;
     meta.lastCastTick[skillIndex] = this.tick;
 
-    const len = Math.hypot(player.faceX, player.faceY) || 1;
-    const dirX = player.faceX / len;
-    const dirY = player.faceY / len;
+    const [dirX, dirY] = this.aimDirection(id, player, input);
     const projectileId = String(this.nextProjectileId++);
 
     this.state.projectiles.set(projectileId, new Projectile({
@@ -200,6 +202,35 @@ export class ArenaRoom extends Room {
       vy: dirY * skill.speed,
     }));
     this.projectileExpire.set(projectileId, this.tick + skill.lifetimeTicks);
+  }
+
+  /**
+   * 技能方向（單位向量）：
+   *   有拖曳瞄準 → 照玩家瞄的方向
+   *   輕點 → 自動瞄準最近的敵人（用伺服器上的真實位置，比客戶端看到的準）
+   *   場上沒有敵人 → 面向
+   */
+  aimDirection(id, player, input) {
+    let dx = input.aimX;
+    let dy = input.aimY;
+    if (dx === 0 && dy === 0) {
+      const target = this.nearestEnemy(id, player);
+      if (target) { dx = target.x - player.x; dy = target.y - player.y; }
+      else { dx = player.faceX; dy = player.faceY; }
+    }
+    const len = Math.hypot(dx, dy) || 1;
+    return [dx / len, dy / len];
+  }
+
+  nearestEnemy(id, player) {
+    let best = null;
+    let bestDist = Infinity;
+    for (const [otherId, other] of this.state.players) {
+      if (otherId === id || !other.alive) continue;
+      const dist = Math.hypot(other.x - player.x, other.y - player.y);
+      if (dist < bestDist) { best = other; bestDist = dist; }
+    }
+    return best;
   }
 
   updateProjectiles(dt) {

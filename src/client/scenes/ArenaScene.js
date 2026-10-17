@@ -1,9 +1,9 @@
 import * as Phaser from "phaser";
 import { Callbacks } from "@colyseus/sdk";
-import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_MAX_HP, SKILLS, DASH_INDEX } from "../../shared/constants.js";
+import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_MAX_HP, SKILLS, DASH_INDEX, TICK_RATE } from "../../shared/constants.js";
 import { theme, playerTextureKey, walkTextureKey } from "../theme.js";
 import { createMissingTextures } from "../placeholders.js";
-import { OBSTACLE_RECTS } from "../../shared/obstacles.js";
+import { OBSTACLE_RECTS, circleHitsObstacle } from "../../shared/obstacles.js";
 import { RoundOverlay } from "../roundOverlay.js";
 
 /** 停下來多久後才切回站立圖（ms），避免插值的小停頓讓動畫一直閃 */
@@ -20,6 +20,9 @@ const HIT_FEEDBACK = {
   vibrateMs: 40,        // 手機震動（Android 支援，iPhone Safari 不支援）
   deathVibrateMs: [60, 40, 90],
 };
+
+/** 拖曳瞄準時的指示線：一排小點，長度 = 技能射程 */
+const AIM_GUIDE = { spacing: 10, dotRadius: 2, alpha: 0.9 };
 
 /**
  * 對戰場景：只負責「畫出伺服器狀態」和「送出輸入」。
@@ -61,6 +64,7 @@ export class ArenaScene extends Phaser.Scene {
     this.createBorder();
     this.createObstacles();
     this.bars = this.add.graphics().setDepth(1000); // 血條統一畫在最上層
+    this.aimGuide = this.add.graphics().setDepth(999);
     this.deadText = this.add.text(ARENA_WIDTH / 2, ARENA_HEIGHT / 2, "復活中…", {
       fontFamily: "monospace", fontSize: "12px", color: "#ffffff", resolution: 4,
     }).setOrigin(0.5).setDepth(1001).setVisible(false);
@@ -118,6 +122,8 @@ export class ArenaScene extends Phaser.Scene {
       this.netInput.data.moveX = canAct ? cmd.moveX : 0;
       this.netInput.data.moveY = canAct ? cmd.moveY : 0;
       this.netInput.data.skill = canAct ? cmd.skill : 0;
+      this.netInput.data.aimX = cmd.aimX;
+      this.netInput.data.aimY = cmd.aimY;
       this.netInput.send();
     }
     this.roundOverlay.update();
@@ -159,8 +165,28 @@ export class ArenaScene extends Phaser.Scene {
       if (view) this.drawProjectile(view, p, now);
     }
 
+    this.drawAimGuide(self, canAct);
+
     // 結算、倒數時由中間的提示說明狀態，不顯示「復活中」
     this.deadText.setVisible(!!self && !self.alive && (phase === "playing" || phase === "waiting"));
+  }
+
+  /** 拖曳技能鍵時，從自己身上往瞄準方向畫一排點，長度等於射程，碰到柱子或場地邊緣就停 */
+  drawAimGuide(self, canAct) {
+    this.aimGuide.clear();
+    const aim = this.controls.aiming;
+    if (!aim || !self || !canAct) return;
+    const skill = SKILLS[aim.skill];
+    const range = skill.speed * (skill.lifetimeTicks / TICK_RATE);
+    const x = this.predict.value(self, "x");
+    const y = this.predict.value(self, "y");
+    this.aimGuide.fillStyle(theme.aimGuideColors?.[aim.skill] ?? 0xffffff, AIM_GUIDE.alpha);
+    for (let d = PLAYER_HALF + AIM_GUIDE.spacing; d <= range; d += AIM_GUIDE.spacing) {
+      const px = x + aim.x * d;
+      const py = y + aim.y * d;
+      if (px < 0 || py < 0 || px > ARENA_WIDTH || py > ARENA_HEIGHT || circleHitsObstacle(px, py, skill.radius)) break;
+      this.aimGuide.fillCircle(Math.round(px), Math.round(py), AIM_GUIDE.dotRadius);
+    }
   }
 
   /**

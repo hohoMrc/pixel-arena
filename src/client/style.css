@@ -168,6 +168,8 @@ html, body {
 .skill-1 { --color: var(--skill-1); grid-column: 1; grid-row: 2; }
 .skill-2 { --color: var(--skill-2); grid-column: 1; grid-row: 1; }
 .skill.pressed { transform: translateY(3px); box-shadow: 0 1px 0 #111219; }
+/* 拖曳瞄準中：外圈亮起來 */
+.skill.aiming { border-color: #fff; }
 .skill .icon { font-size: 24px; line-height: 1; }
 .skill-0 .icon { font-size: 32px; }
 .skill .label { font-size: 11px; margin-top: 2px; }

@@ -5,9 +5,11 @@ import { schema, t } from "@colyseus/schema";
  * 數值範圍由 ArenaRoom 的 sanitize 強制檢查。
  */
 export const PlayerInput = schema({
-  moveX: t.int8(),
+  moveX: t.int8(), // 移動方向，每軸 -INPUT_SCALE ~ INPUT_SCALE（任意角度）
   moveY: t.int8(),
   skill: t.int8(), // 0 = 沒放技能，1..N = 施放 SKILLS[N-1]
+  aimX: t.int8(),  // 技能瞄準方向；(0, 0) = 自動瞄準最近的敵人
+  aimY: t.int8(),
 });
 
 export const Player = schema({
@@ -17,7 +19,7 @@ export const Player = schema({
   y: t.number(),
   vx: t.number(),
   vy: t.number(),
-  faceX: t.int8(),   // 面向，決定技能和衝刺方向
+  faceX: t.int8(),   // 面向（-INPUT_SCALE ~ INPUT_SCALE），決定衝刺方向、沒有敵人時的技能方向
   faceY: t.int8(),
   dashTicks: t.uint8(), // 衝刺剩下幾個 tick（> 0 = 衝刺中，無敵）
   dashCd: t.uint8(),    // 衝刺冷卻剩下幾個 tick

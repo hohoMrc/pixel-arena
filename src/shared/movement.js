@@ -12,7 +12,7 @@ const clamp = (value, min, max) => (value < min ? min : value > max ? max : valu
  * 衝刺也在這裡處理（包含冷卻），所以按下衝刺時客戶端能立刻預測，不會被伺服器拉回。
  *
  * @param {{x,y,vx,vy,faceX,faceY,dashTicks,dashCd}} entity 會被直接修改
- * @param {{moveX:number,moveY:number,skill:number}} input moveX/moveY 每軸 -1 / 0 / 1
+ * @param {{moveX:number,moveY:number,skill:number}} input moveX/moveY 是方向向量，每軸 -INPUT_SCALE ~ INPUT_SCALE
  * @param {number} dt 秒
  */
 export function stepEntity(entity, input, dt) {
@@ -38,15 +38,10 @@ export function stepEntity(entity, input, dt) {
     vx = (entity.faceX / len) * dash.speed;
     vy = (entity.faceY / len) * dash.speed;
   } else {
-    let dirX = input.moveX;
-    let dirY = input.moveY;
-    // 斜走時正規化，避免比直走還快
-    if (dirX !== 0 && dirY !== 0) {
-      dirX *= Math.SQRT1_2;
-      dirY *= Math.SQRT1_2;
-    }
-    vx = dirX * PLAYER_SPEED;
-    vy = dirY * PLAYER_SPEED;
+    // 只取方向、固定速度（任何角度、鍵盤斜走都一樣快）
+    const len = Math.hypot(input.moveX, input.moveY);
+    vx = len ? (input.moveX / len) * PLAYER_SPEED : 0;
+    vy = len ? (input.moveY / len) * PLAYER_SPEED : 0;
   }
 
   const x = entity.x + vx * dt;
