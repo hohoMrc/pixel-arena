@@ -7,6 +7,8 @@ const DEAD_ZONE = 0.3;
 const AIM_DEAD_ZONE_PX = 16;
 /** 指定地點技能：拖這麼遠（px）= 丟到最遠，拖越短丟越近 */
 const AIM_MAX_DRAG_PX = 70;
+/** 冷卻總長至少這麼久（ms）才在按鈕上顯示秒數；火球這種很短的冷卻只顯示轉圈，免得數字一直閃 */
+const SHOW_SECONDS_MIN_MS = 1000;
 /** 放開技能時還在冷卻，最多等這麼久（ms）冷卻好了再自動放出去，免得按太快被吃掉 */
 const CAST_BUFFER_MS = 200;
 
@@ -49,7 +51,12 @@ export class Controls {
     this.setupKeyboard();
   }
 
-  read() {
+  /** @param {boolean} canAct 死亡、倒數、結算時為 false：不放技能，也不開始本地冷卻計時 */
+  read(canAct = true) {
+    if (!canAct) {
+      this.pendingCast = null;
+      return { moveX: 0, moveY: 0, skill: 0, aimX: 0, aimY: 0 };
+    }
     const key = (names) => names.some((k) => this.heldKeys.has(k));
     const kx = (key(KEYS.right) ? 1 : 0) - (key(KEYS.left) ? 1 : 0);
     const ky = (key(KEYS.down) ? 1 : 0) - (key(KEYS.up) ? 1 : 0);
@@ -86,13 +93,37 @@ export class Controls {
     return now - this.lastCastAt[i] >= (SKILLS[i].cooldownTicks / TICK_RATE) * 1000;
   }
 
-  /** 冷卻轉圈顯示（只是本地估算，實際冷卻以伺服器為準） */
-  updateCooldowns(now) {
+  /**
+   * 冷卻顯示：轉圈遮罩 + 剩餘秒數。
+   * 攻擊技能用本地估算（按下的時間）；衝刺用預測狀態裡的 dashCd，是精確值。
+   * @param {number} now performance.now()
+   * @param {number} dashCdTicks 自己的衝刺冷卻剩幾個 tick
+   */
+  updateCooldowns(now, dashCdTicks = 0) {
     SKILLS.forEach((s, i) => {
-      const total = (s.cooldownTicks / TICK_RATE) * 1000;
-      const left = Math.max(0, 1 - (now - this.lastCastAt[i]) / total);
-      this.skillButtons[i].style.setProperty("--cd", left);
+      const totalMs = (s.cooldownTicks / TICK_RATE) * 1000;
+      const leftMs = i === DASH_INDEX
+        ? (dashCdTicks / TICK_RATE) * 1000
+        : Math.max(0, totalMs - (now - this.lastCastAt[i]));
+      const btn = this.skillButtons[i];
+      btn.style.setProperty("--cd", leftMs / totalMs);
+
+      // 秒數：1 秒以上顯示整數（無條件進位），最後 1 秒顯示一位小數
+      const text = leftMs <= 0 || totalMs < SHOW_SECONDS_MIN_MS ? ""
+        : leftMs >= 1000 ? String(Math.ceil(leftMs / 1000))
+        : (leftMs / 1000).toFixed(1);
+      // 只在數字變了才改 DOM，每幀都改會浪費效能
+      if (btn.cdText.textContent !== text) {
+        btn.cdText.textContent = text;
+        btn.classList.toggle("cooling", text !== "");
+      }
     });
+  }
+
+  /** 新的一局開始，伺服器會重置冷卻，這裡跟著重置 */
+  resetCooldowns() {
+    this.lastCastAt = SKILLS.map(() => -Infinity);
+    this.pendingCast = null;
   }
 
   markCast(i) {
@@ -141,7 +172,8 @@ export class Controls {
     return SKILLS.map((skill, i) => {
       const btn = document.createElement("button");
       btn.className = `skill skill-${i}`;
-      btn.innerHTML = `<span class="icon">${theme.skillIcons[i] ?? "★"}</span><span class="label">${skill.name}</span>`;
+      btn.innerHTML = `<span class="icon">${theme.skillIcons[i] ?? "★"}</span><span class="label">${skill.name}</span><span class="cd-text"></span>`;
+      btn.cdText = btn.querySelector(".cd-text");
 
       btn.addEventListener("contextmenu", (e) => e.preventDefault()); // 長按不跳選單
       container.appendChild(btn);

@@ -159,7 +159,7 @@ export class ArenaScene extends Phaser.Scene {
     const { phase } = this.room.state;
     const canAct = (self?.alive ?? false) && phase !== "countdown" && phase !== "ended";
     for (let i = 0; i < steps; i++) {
-      const cmd = this.controls.read();
+      const cmd = this.controls.read(canAct);
       this.netInput.data.moveX = canAct ? cmd.moveX : 0;
       this.netInput.data.moveY = canAct ? cmd.moveY : 0;
       this.netInput.data.skill = canAct ? cmd.skill : 0;
@@ -168,7 +168,9 @@ export class ArenaScene extends Phaser.Scene {
       this.netInput.send();
     }
     this.roundOverlay.update();
-    this.controls.updateCooldowns(now);
+    if (phase === "countdown" && this.lastPhase !== "countdown") this.controls.resetCooldowns();
+    this.lastPhase = phase;
+    this.controls.updateCooldowns(now, self ? this.predict.value(self, "dashCd") : 0);
 
     this.bars.clear();
     for (const [id, player] of this.room.state.players) {
