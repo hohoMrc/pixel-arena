@@ -103,6 +103,13 @@ const SOUNDS = {
   respawn: () => concat(
     ...[392, 523, 659, 784].map((f, i) => synth({ duration: i === 3 ? 0.22 : 0.07, wave: "square", freq: [f, f], decay: i === 3 ? 4 : 1, lowpass: [0.35, 0.35] })),
   ),
+  // 柱子被打中：短促的石頭敲擊聲
+  pillar_hit: () => synth({ duration: 0.1, wave: "noise", freq: [900, 300], decay: 9, lowpass: [0.35, 0.1] }),
+  // 柱子倒塌：低沉、拖長的碎石聲
+  pillar_break: () => concat(
+    synth({ duration: 0.12, wave: "noise", freq: [700, 200], decay: 4, lowpass: [0.5, 0.2] }),
+    synth({ duration: 0.5, wave: "noise", freq: [400, 60], decay: 3.5, lowpass: [0.3, 0.04], noiseMix: 0.3 }),
+  ),
 };
 
 /** 正規化音量並寫成 16-bit 單聲道 WAV */

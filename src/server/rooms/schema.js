@@ -40,6 +40,11 @@ export const Projectile = schema({
   vy: t.number(),
 });
 
+/** 柱子：索引同 shared/constants.js 的 OBSTACLES，hp = 0 代表被打壞了 */
+export const Pillar = schema({
+  hp: t.uint8(),
+});
+
 /** 指定地點爆炸：預告中的落點，時間到就爆炸並從 map 移除 */
 export const Blast = schema({
   owner: t.string(),
@@ -57,4 +62,5 @@ export const ArenaState = schema({
   players: t.map(Player),
   projectiles: t.map(Projectile),
   blasts: t.map(Blast),
+  pillars: t.array(Pillar),
 });

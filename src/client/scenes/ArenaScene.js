@@ -1,6 +1,6 @@
 import * as Phaser from "phaser";
 import { Callbacks } from "@colyseus/sdk";
-import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_MAX_HP, SKILLS, DASH_INDEX, TICK_RATE, INPUT_SCALE, ENERGY } from "../../shared/constants.js";
+import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_MAX_HP, SKILLS, DASH_INDEX, TICK_RATE, INPUT_SCALE, ENERGY, PILLAR } from "../../shared/constants.js";
 import { theme, playerTextureKey, walkTextureKey } from "../theme.js";
 import { createMissingTextures } from "../placeholders.js";
 import { OBSTACLE_RECTS, circleHitsObstacle } from "../../shared/obstacles.js";
@@ -21,6 +21,20 @@ const HIT_FEEDBACK = {
   vibrateMs: 40,        // 手機震動（Android 支援，iPhone Safari 不支援）
   deathVibrateMs: [60, 40, 90],
 };
+
+/** 柱子受傷、倒塌、長回來的效果 */
+const PILLAR_FX = {
+  flashMs: 80,
+  jitterMs: 140,
+  jitterPx: 1,
+  damagedTint: 0x7a7f90,   // 血越少越接近這個顏色（看起來快碎了）
+  debrisCount: 10,         // 倒塌時噴出幾塊碎石
+  debrisMs: 450,
+  regrowMs: 400,
+};
+
+/** 鏡頭跟隨：越小越平滑（0~1）；角色原點在腳底，往上偏一點讓身體在畫面中間 */
+const CAMERA = { lerp: 0.15, offsetY: 20 };
 
 /** 拖曳瞄準時的指示線：一排小點，長度 = 技能射程 */
 const AIM_GUIDE = { spacing: 10, dotRadius: 2, alpha: 0.9 };
@@ -50,7 +64,7 @@ export class ArenaScene extends Phaser.Scene {
     super("arena");
   }
 
-  /** @param {{ room, predict, netInput, controls }} data 由 main.js 傳入 */
+  /** @param {{ room, predict, netInput, controls, solid }} data 由 main.js 傳入（solid：每根柱子還在不在，和預測移動共用） */
   init(data) {
     Object.assign(this, data);
     this.playerViews = new Map();     // sessionId → { sprite, label, lastX, lastY, walkUntil, lastHp, flashUntil, jitterUntil }
@@ -86,9 +100,11 @@ export class ArenaScene extends Phaser.Scene {
     this.blastGraphics = this.add.graphics().setDepth(SHADOW.depth + 0.1); // 預告圈畫在地上
     this.createShadowTexture("shadow-player", SHADOW.player);
     this.createShadowTexture("shadow-projectile", SHADOW.projectile);
-    this.deadText = this.add.text(ARENA_WIDTH / 2, ARENA_HEIGHT / 2, "復活中…", {
+    // 固定在畫面中間（不跟著鏡頭捲動）
+    this.deadText = this.add.text(theme.viewport.width / 2, theme.viewport.height / 2, "復活中…", {
       fontFamily: "monospace", fontSize: "12px", color: "#ffffff", resolution: 4,
-    }).setOrigin(0.5).setDepth(1001).setVisible(false);
+    }).setOrigin(0.5).setDepth(1001).setScrollFactor(0).setVisible(false);
+    this.minimap = this.add.graphics().setDepth(3000).setScrollFactor(0);
 
     const callbacks = Callbacks.get(this.room);
 
@@ -230,6 +246,9 @@ export class ArenaScene extends Phaser.Scene {
 
     // 結算、倒數時由中間的提示說明狀態，不顯示「復活中」
     this.deadText.setVisible(!!self && !self.alive && (phase === "playing" || phase === "waiting"));
+    this.updatePillars(now);
+    this.followSelf();
+    this.drawMinimap(self);
   }
 
   /** 預告圈：外圈固定，內圈隨時間填滿；火球從上方掉到落點，影子越來越深 */
@@ -291,19 +310,20 @@ export class ArenaScene extends Phaser.Scene {
     for (let d = PLAYER_HALF + AIM_GUIDE.spacing; d <= range; d += AIM_GUIDE.spacing) {
       const px = x + aim.x * d;
       const py = y + aim.y * d;
-      if (px < 0 || py < 0 || px > ARENA_WIDTH || py > ARENA_HEIGHT || circleHitsObstacle(px, py, skill.radius)) break;
+      if (px < 0 || py < 0 || px > ARENA_WIDTH || py > ARENA_HEIGHT || circleHitsObstacle(px, py, skill.radius, this.solid)) break;
       this.aimGuide.fillCircle(Math.round(px), Math.round(py), AIM_GUIDE.dotRadius);
     }
   }
 
   /**
    * 場地外框。遊戲座標不變（場地仍是 0~ARENA），外框畫在負座標，
-   * 再把鏡頭往左上捲，讓外框出現在畫面裡。
+   * 鏡頭的範圍包含外框。
    */
   createBorder() {
     const { top, side, bottom } = theme.border;
     const fullH = top + ARENA_HEIGHT + bottom;
-    this.cameras.main.setScroll(-side, -top);
+    // 鏡頭最多捲到外框邊緣，不會看到場地外的空白
+    this.cameras.main.setBounds(-side, -top, ARENA_WIDTH + side * 2, fullH);
 
     // 角色的深度 = y（>0），外框用負深度，角色的頭才會疊在牆上
     this.add.tileSprite(-side, -top, ARENA_WIDTH + side * 2, top, "wallFace").setOrigin(0).setDepth(-2);
@@ -323,11 +343,118 @@ export class ArenaScene extends Phaser.Scene {
    * 障礙物：圖片底部對齊佔地底部，深度 = 佔地底部的 y。
    * 角色深度是自己的 y，所以站在柱子後面（y 較小）會被擋住，站在前面會蓋過柱子。
    */
+  /** 柱子：一般狀態 + 倒塌後的碎石（平常隱藏） */
   createObstacles() {
-    for (const r of OBSTACLE_RECTS) {
-      this.add.image((r.left + r.right) / 2, r.bottom, "pillar").setOrigin(0.5, 1).setDepth(r.bottom);
+    this.pillarViews = OBSTACLE_RECTS.map((r) => {
+      const x = (r.left + r.right) / 2;
+      const sprite = this.add.image(x, r.bottom, "pillar").setOrigin(0.5, 1).setDepth(r.bottom);
+      const rubble = this.add.image(x, r.bottom, "rubble").setOrigin(0.5, 1).setDepth(SHADOW.depth + 0.05).setVisible(false);
+      return { sprite, rubble, x, lastHp: PILLAR.hp, flashUntil: 0, jitterUntil: 0 };
+    });
+  }
+
+  /** 從伺服器狀態更新柱子：受傷閃白、越破越暗、倒塌噴碎石、時間到長回來 */
+  updatePillars(now) {
+    const pillars = this.room.state.pillars;
+    this.pillarViews.forEach((view, i) => {
+      const hp = pillars?.at(i)?.hp ?? PILLAR.hp;
+      this.solid[i] = hp > 0;
+
+      if (hp < view.lastHp) {
+        view.flashUntil = now + PILLAR_FX.flashMs;
+        view.jitterUntil = now + PILLAR_FX.jitterMs;
+        if (hp === 0) this.breakPillar(view);
+        else this.playSfx("pillar_hit", 0.6);
+      } else if (hp > 0 && view.lastHp === 0) {
+        this.regrowPillar(view);
+      }
+      view.lastHp = hp;
+      if (hp === 0) return;
+
+      const jitter = now < view.jitterUntil ? Math.round((Math.random() * 2 - 1) * PILLAR_FX.jitterPx) : 0;
+      view.sprite.x = view.x + jitter;
+      if (now < view.flashUntil) {
+        view.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
+      } else {
+        // 血越少越暗：在白色（原色）和 damagedTint 之間內插
+        const t = 1 - hp / PILLAR.hp;
+        const c = Phaser.Display.Color.Interpolate.ColorWithColor(
+          Phaser.Display.Color.ValueToColor(0xffffff), Phaser.Display.Color.ValueToColor(PILLAR_FX.damagedTint), 1, t);
+        view.sprite.setTint(Phaser.Display.Color.GetColor(c.r, c.g, c.b)).setTintMode(Phaser.TintModes.MULTIPLY);
+      }
+    });
+  }
+
+  breakPillar(view) {
+    this.playSfx("pillar_break");
+    this.tweens.killTweensOf(view.sprite);
+    view.sprite.setVisible(false);
+    view.rubble.setVisible(true);
+    // 碎石往四周噴，帶一點重力往下掉
+    const baseY = view.sprite.y - 12;
+    for (let k = 0; k < PILLAR_FX.debrisCount; k++) {
+      const size = 2 + Math.floor(Math.random() * 3);
+      const bit = this.add.rectangle(view.x, baseY - Math.random() * 30, size, size, 0x8a92a8).setDepth(view.sprite.depth + 1);
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 14 + Math.random() * 22;
+      this.tweens.add({
+        targets: bit,
+        x: view.x + Math.cos(angle) * dist,
+        y: { value: view.sprite.y + Math.random() * 6, ease: "Quad.easeIn" },
+        alpha: 0,
+        duration: PILLAR_FX.debrisMs,
+        onComplete: () => bit.destroy(),
+      });
     }
   }
+
+  regrowPillar(view) {
+    view.rubble.setVisible(false);
+    view.sprite.setVisible(true).clearTint().setAlpha(0).setScale(1, 0.2);
+    this.tweens.add({ targets: view.sprite, alpha: 1, scaleY: 1, duration: PILLAR_FX.regrowMs, ease: "Back.easeOut" });
+  }
+
+  /** 鏡頭跟著自己的角色（第一次找到自己時開始跟隨，之後由 Phaser 平滑移動） */
+  followSelf() {
+    if (this.following) return;
+    const view = this.playerViews.get(this.room.sessionId);
+    if (!view) return;
+    this.cameras.main.startFollow(view.sprite, true, CAMERA.lerp, CAMERA.lerp, 0, CAMERA.offsetY);
+    this.following = true;
+  }
+
+  /** 右上角小地圖：柱子、玩家位置，以及目前畫面看到的範圍 */
+  drawMinimap(self) {
+    const { width, margin, alpha } = theme.minimap;
+    const scale = width / ARENA_WIDTH;
+    const height = Math.round(ARENA_HEIGHT * scale);
+    const left = theme.viewport.width - width - margin;
+    const top = margin;
+    const g = this.minimap.clear();
+    g.fillStyle(0x0b0c12, alpha).fillRect(left - 1, top - 1, width + 2, height + 2);
+    g.lineStyle(1, 0xffffff, 0.25).strokeRect(left - 1, top - 1, width + 2, height + 2);
+
+    OBSTACLE_RECTS.forEach((r, i) => {
+      if (!this.solid[i]) return;
+      g.fillStyle(0x8a92a8, 0.9).fillRect(left + Math.round(r.left * scale), top + Math.round(r.top * scale), 2, 2);
+    });
+    for (const [, b] of this.room.state.blasts) {
+      g.fillStyle(BLAST_FX.color, 0.8).fillCircle(left + b.x * scale, top + b.y * scale, 2);
+    }
+    for (const [id, p] of this.room.state.players) {
+      if (!p.alive) continue;
+      const isSelf = id === this.room.sessionId;
+      const x = this.predict.value(p, "x");
+      const y = this.predict.value(p, "y");
+      g.fillStyle(isSelf ? 0xffe066 : 0xff5c5c).fillRect(left + Math.round(x * scale) - 1, top + Math.round(y * scale) - 1, 3, 3);
+    }
+    // 目前畫面範圍
+    const view = this.cameras.main.worldView;
+    const x0 = Math.max(0, view.x), x1 = Math.min(ARENA_WIDTH, view.right);
+    const y0 = Math.max(0, view.y), y1 = Math.min(ARENA_HEIGHT, view.bottom);
+    g.lineStyle(1, 0xffffff, 0.35).strokeRect(left + x0 * scale, top + y0 * scale, (x1 - x0) * scale, (y1 - y0) * scale);
+  }
+
 
   /** 被打中：所有人都看得到閃白和抖動；自己被打中再加鏡頭震動和手機震動 */
   onHit(view, isSelf, died, now) {

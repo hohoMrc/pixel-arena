@@ -1,6 +1,6 @@
 import * as Phaser from "phaser";
 import { Predict } from "@colyseus/sdk/predict";
-import { ARENA_WIDTH, ARENA_HEIGHT } from "../shared/constants.js";
+import { OBSTACLES } from "../shared/constants.js";
 import { stepEntity } from "../shared/movement.js";
 import { theme } from "./theme.js";
 import { joinArena } from "./network.js";
@@ -44,12 +44,15 @@ async function main() {
   await new Promise((resolve) => room.onStateChange.once(() => resolve()));
   const self = room.state.players.get(room.sessionId);
 
+  // 每根柱子還在不在：ArenaScene 每幀從伺服器狀態更新，預測移動時才知道哪些柱子已經被打壞
+  const solid = OBSTACLES.map(() => true);
+
   // 自己的角色：先在本地預測移動（手感即時），伺服器結果回來再修正
   predict.reconciler(self, {
     input: netInput,
     // stepEntity 會讀寫的欄位都要列出來，預測才完整（面向、衝刺狀態、衝刺冷卻）
     fields: ["x", "y", "vx", "vy", "faceX", "faceY", "dashTicks", "dashCd"],
-    step: (ctx, predicted, command) => stepEntity(predicted, command, ctx.dt),
+    step: (ctx, predicted, command) => stepEntity(predicted, command, ctx.dt, solid),
   });
 
   setupHud(room);
@@ -57,9 +60,9 @@ async function main() {
   const game = new Phaser.Game({
     type: Phaser.AUTO,
     parent: "game",
-    // 畫面 = 場地 + 四周外框
-    width: ARENA_WIDTH + theme.border.side * 2,
-    height: ARENA_HEIGHT + theme.border.top + theme.border.bottom,
+    // 畫面大小固定，場地比畫面大時鏡頭會跟著自己走
+    width: theme.viewport.width,
+    height: theme.viewport.height,
     backgroundColor: theme.backgroundColor,
     pixelArt: true,
     scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
@@ -69,7 +72,7 @@ async function main() {
     callbacks: {
       postBoot: (game) => {
         setupMute(game);
-        game.scene.add("arena", ArenaScene, true, { room, predict, netInput, controls });
+        game.scene.add("arena", ArenaScene, true, { room, predict, netInput, controls, solid });
       },
     },
   });

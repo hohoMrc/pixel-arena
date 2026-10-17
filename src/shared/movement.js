@@ -14,8 +14,9 @@ const clamp = (value, min, max) => (value < min ? min : value > max ? max : valu
  * @param {{x,y,vx,vy,faceX,faceY,dashTicks,dashCd}} entity 會被直接修改
  * @param {{moveX:number,moveY:number,skill:number}} input moveX/moveY 是方向向量，每軸 -INPUT_SCALE ~ INPUT_SCALE
  * @param {number} dt 秒
+ * @param {boolean[]} [solid] 每根柱子還在不在（被打壞的可以穿過去），不傳 = 全部都在
  */
-export function stepEntity(entity, input, dt) {
+export function stepEntity(entity, input, dt, solid) {
   const dash = SKILLS[DASH_INDEX];
   if (entity.dashCd > 0) entity.dashCd--;
 
@@ -57,12 +58,12 @@ export function stepEntity(entity, input, dt) {
   // 撞到時貼齊柱子邊緣，不會停在半空中
   let nextX = clampedX;
   let nextY = clampedY;
-  const hitX = obstacleHitByBox(nextX, entity.y, PLAYER_HALF);
+  const hitX = obstacleHitByBox(nextX, entity.y, PLAYER_HALF, solid);
   if (hitX) {
     nextX = vx > 0 ? hitX.left - PLAYER_HALF : hitX.right + PLAYER_HALF;
     vx = 0;
   }
-  const hitY = obstacleHitByBox(nextX, nextY, PLAYER_HALF);
+  const hitY = obstacleHitByBox(nextX, nextY, PLAYER_HALF, solid);
   if (hitY) {
     nextY = vy > 0 ? hitY.top - PLAYER_HALF : hitY.bottom + PLAYER_HALF;
     vy = 0;

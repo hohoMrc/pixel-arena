@@ -18,6 +18,8 @@ export const theme = {
     wallTop:     { path: "assets/wall_top.png",    size: [64, 64], color: 0x4a5878 },
     // 障礙物：底部對齊佔地底部，比角色高才擋得住後面的人
     pillar:      { path: "assets/pillar.png",      size: [25, 61], color: 0x6b7590 },
+    // 柱子被打壞後留在地上的碎石。沒有圖片時用程式畫的 placeholder（之後可以用 Codex 產圖換掉）
+    rubble:      { size: [30, 14], color: 0x6b7590 },
     fireball:    { path: "assets/fireball.png",    size: [17, 11], color: 0xff8a3d },
     bigfireball: { path: "assets/bigfireball.png", size: [39, 23], color: 0xff4d2e },
     // 角色外觀（skin 0~3），玩家在進場畫面選。32×40，面朝右，腳貼齊圖片底部
@@ -52,6 +54,8 @@ export const theme = {
     go:               "assets/sfx/go.wav",
     win:              "assets/sfx/win.wav",
     lose:             "assets/sfx/lose.wav",
+    pillar_hit:       "assets/sfx/pillar_hit.wav",
+    pillar_break:     "assets/sfx/pillar_break.wav",
   },
   /** 每個技能（對應 SKILLS 的順序）施放和命中時播哪個音效 */
   skillSounds: [
@@ -67,6 +71,10 @@ export const theme = {
 
   /** 外框厚度（像素）。上方要夠高，角色走到最上面時頭才不會被切掉 */
   border: { top: 64, side: 16, bottom: 16 },
+  /** 手機上看到的遊戲畫面大小（遊戲單位）。場地比這個大，鏡頭跟著自己移動 */
+  viewport: { width: 416, height: 512 },
+  /** 右上角小地圖 */
+  minimap: { width: 64, margin: 6, alpha: 0.75 },
 
   /** 命中特效每秒幾格；沒打中時只播最後兩格（冒煙） */
   impactFrameRate: 16,

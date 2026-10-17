@@ -33,13 +33,13 @@ function toInput(dx, dy) {
   return { x: Math.round((dx / len) * INPUT_SCALE), y: Math.round((dy / len) * INPUT_SCALE) };
 }
 
-/** 兩點之間有沒有被柱子擋住（每 6 單位取樣一次） */
-function hasLineOfSight(ax, ay, bx, by, radius) {
+/** 兩點之間有沒有被（還在的）柱子擋住（每 6 單位取樣一次） */
+function hasLineOfSight(ax, ay, bx, by, radius, solid) {
   const dist = Math.hypot(bx - ax, by - ay);
   const steps = Math.ceil(dist / 6);
   for (let i = 1; i < steps; i++) {
     const t = i / steps;
-    if (circleHitsObstacle(ax + (bx - ax) * t, ay + (by - ay) * t, radius)) return false;
+    if (circleHitsObstacle(ax + (bx - ax) * t, ay + (by - ay) * t, radius, solid)) return false;
   }
   return true;
 }
@@ -63,9 +63,9 @@ export class BotBrain {
   unstickDir = { x: 0, y: 0 };
 
   /**
-   * @param {object} ctx { id, player, players, projectiles, blasts, tick, canCast(skillIndex) }
+   * @param {object} ctx { id, player, players, projectiles, blasts, solid, tick, canCast(skillIndex) }
    */
-  think({ id, player, players, projectiles, blasts, tick, canCast }) {
+  think({ id, player, players, projectiles, blasts, solid, tick, canCast }) {
     const input = { moveX: 0, moveY: 0, skill: 0, aimX: 0, aimY: 0 };
     const target = this.findTarget(id, player, players);
     const threat = this.findThreat(id, player, projectiles, tick);
@@ -102,7 +102,7 @@ export class BotBrain {
 
     // 3. 攻擊（衝刺的這個 tick 不攻擊，一次只能送一個技能）
     if (!input.skill && target) {
-      const shot = this.chooseShot(player, target, canCast);
+      const shot = this.chooseShot(player, target, canCast, solid);
       if (shot) Object.assign(input, shot);
     }
 
@@ -191,7 +191,7 @@ export class BotBrain {
   }
 
   /** 冷卻好、看得到目標就開火；瞄準預判走位，再加一點誤差 */
-  chooseShot(player, target, canCast) {
+  chooseShot(player, target, canCast, solid) {
     if (Math.random() > BOT_CONFIG.fireChance) return null;
     const dist = Math.hypot(target.x - player.x, target.y - player.y);
 
@@ -225,7 +225,7 @@ export class BotBrain {
 
     const skill = SKILLS[skillIndex];
     if (dist > skill.speed * (skill.lifetimeTicks / TICK_RATE)) return null; // 射不到
-    if (!hasLineOfSight(player.x, player.y, target.x, target.y, skill.radius)) return null;
+    if (!hasLineOfSight(player.x, player.y, target.x, target.y, skill.radius, solid)) return null;
 
     // 預判：火球飛到那裡要多久，目標那時會在哪
     const flight = (dist / skill.speed) * BOT_CONFIG.leadFactor;

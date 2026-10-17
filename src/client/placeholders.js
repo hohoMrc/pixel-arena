@@ -14,6 +14,7 @@ export function createMissingTextures(scene) {
 
     if (key === "floor" || key.startsWith("wall") || key === "pillar") drawFloor(g, w, h, asset.color);
     else if (key.startsWith("player")) drawPlayer(g, w, h, asset.color);
+    else if (key === "rubble") drawRubble(g, w, h, asset.color);
     else drawOrb(g, w, h, asset.color);
 
     g.generateTexture(key, w, h);
@@ -39,4 +40,17 @@ function drawOrb(g, w, h, color) {
   const r = Math.min(w, h) / 2;
   g.fillStyle(color).fillCircle(w - r, h / 2, r);
   g.fillStyle(0xffffff, 0.7).fillCircle(w - r - r / 3, h / 2 - r / 3, r / 3);
+}
+
+/** 碎石堆：幾塊大小不一的石頭，左上亮、右下暗 */
+function drawRubble(g, w, h, color) {
+  const stones = [
+    [2, 6, 8, 6], [8, 3, 9, 8], [16, 5, 8, 7], [22, 8, 6, 5], [5, 10, 6, 4], [13, 10, 7, 4],
+  ];
+  for (const [x, y, sw, sh] of stones) {
+    g.fillStyle(0x000000, 0.35).fillRect(x + 1, y + 1, sw, sh);
+    g.fillStyle(color).fillRect(x, y, sw, sh);
+    g.fillStyle(0xffffff, 0.25).fillRect(x, y, sw, 1);
+    g.fillStyle(0x000000, 0.25).fillRect(x, y + sh - 1, sw, 1);
+  }
 }

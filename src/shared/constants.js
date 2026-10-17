@@ -3,9 +3,12 @@
 /** 伺服器每秒模擬幾次（每個輸入剛好推進一步） */
 export const TICK_RATE = 30;
 
-/** 場地大小（遊戲單位 = 像素；角色約 32×40，配合手機直立的上半部畫面） */
-export const ARENA_WIDTH = 384;
-export const ARENA_HEIGHT = 432;
+/**
+ * 場地大小（遊戲單位 = 像素；角色約 32×40）。
+ * 比手機畫面大，鏡頭會跟著自己的角色移動（畫面大小在 client/theme.js 的 viewport）。
+ */
+export const ARENA_WIDTH = 576;
+export const ARENA_HEIGHT = 672;
 
 /**
  * 輸入的方向（移動、瞄準）用 -INPUT_SCALE ~ INPUT_SCALE 的整數表示，可以是任意角度。
@@ -32,6 +35,7 @@ export const RAGE = {
   max: 100,
   perDamageDealt: 0.8,  // 造成 1 點傷害 +0.8
   perDamageTaken: 0.5,  // 受到 1 點傷害 +0.5
+  perStructureDamage: 0.3, // 打柱子 1 點傷害 +0.3
 };
 
 /** 一局的規則 */
@@ -108,23 +112,45 @@ export const DASH_INDEX = SKILLS.findIndex((s) => s.type === "dash");
 /**
  * 障礙物（石柱）。座標是「地面佔地」的中心點，w/h 是佔地大小，會擋人也會擋技能。
  * 圖片比佔地高（有立體感），畫的時候底部對齊佔地底部。
- * 調整配置時注意不要擋到出生點。
+ * 配置上下左右對稱（每個人出生點附近的地形一樣），調整時注意不要擋到出生點。
  */
 export const OBSTACLE_SIZE = { w: 24, h: 18 };
-export const OBSTACLES = [
-  { x: ARENA_WIDTH / 2, y: ARENA_HEIGHT / 2 },
-  { x: 112, y: 140 },
-  { x: ARENA_WIDTH - 112, y: 140 },
-  { x: 112, y: ARENA_HEIGHT - 140 },
-  { x: ARENA_WIDTH - 112, y: ARENA_HEIGHT - 140 },
+const CX = ARENA_WIDTH / 2;
+const CY = ARENA_HEIGHT / 2;
+/** 只寫左上四分之一，其他三個方向鏡射產生（落在中線上的不重複） */
+const QUARTER = [
+  { x: CX, y: CY },           // 正中間
+  { x: CX, y: 160 },          // 上、下中間
+  { x: 150, y: CY },          // 左、右中間
+  { x: 190, y: 236 },         // 內圈斜角
+  { x: 110, y: 170 },         // 靠近出生點的掩護
 ];
+export const OBSTACLES = mirror(QUARTER);
 
-/** 出生點，依加入順序輪流使用 */
+function mirror(points) {
+  const seen = new Set();
+  const out = [];
+  for (const { x, y } of points) {
+    for (const p of [{ x, y }, { x: ARENA_WIDTH - x, y }, { x, y: ARENA_HEIGHT - y }, { x: ARENA_WIDTH - x, y: ARENA_HEIGHT - y }]) {
+      const key = `${p.x},${p.y}`;
+      if (!seen.has(key)) { seen.add(key); out.push(p); }
+    }
+  }
+  return out;
+}
+
+/** 柱子可以被技能打壞：血量、打壞後多久長回來（新的一局全部恢復） */
+export const PILLAR = {
+  hp: 100,
+  respawnTicks: 600, // 20 秒
+};
+
+/** 出生點，依加入順序輪流使用（對角線先，1 對 1 時離最遠） */
 export const SPAWN_POINTS = [
-  { x: 60, y: 60 },
-  { x: ARENA_WIDTH - 60, y: ARENA_HEIGHT - 60 },
-  { x: ARENA_WIDTH - 60, y: 60 },
-  { x: 60, y: ARENA_HEIGHT - 60 },
+  { x: 80, y: 80 },
+  { x: ARENA_WIDTH - 80, y: ARENA_HEIGHT - 80 },
+  { x: ARENA_WIDTH - 80, y: 80 },
+  { x: 80, y: ARENA_HEIGHT - 80 },
 ];
 
 export const MAX_PLAYERS = SPAWN_POINTS.length;

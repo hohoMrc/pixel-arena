@@ -1,13 +1,13 @@
 import { Room } from "colyseus";
-import { ArenaState, Player, PlayerInput, Projectile, Blast } from "./schema.js";
+import { ArenaState, Player, PlayerInput, Projectile, Blast, Pillar } from "./schema.js";
 import { stepEntity } from "../../shared/movement.js";
-import { circleHitsObstacle } from "../../shared/obstacles.js";
+import { OBSTACLE_RECTS, obstacleIndexHitByCircle, circleOverlapsRect, obstacleHitByBox } from "../../shared/obstacles.js";
 import { BotBrain } from "../bot.js";
 import { blastTarget, aimToward, meteorTargets } from "../../shared/blast.js";
 import {
   TICK_RATE, ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_MAX_HP,
   RESPAWN_TICKS, SKILLS, DASH_INDEX, SPAWN_POINTS, MAX_PLAYERS, ROUND, INPUT_SCALE,
-  SKIN_COUNT, NAME_MAX_LENGTH, ENERGY, RAGE,
+  SKIN_COUNT, NAME_MAX_LENGTH, ENERGY, RAGE, OBSTACLES, PILLAR,
 } from "../../shared/constants.js";
 
 /** 不能動的時候（死亡、倒數、結算）用的空輸入 */
@@ -58,10 +58,15 @@ export class ArenaRoom extends Room {
   projectileExpire = new Map();
   /** 爆炸時間：blastId → tick */
   blastDetonate = new Map();
+  /** 每根柱子還在不在（每個 tick 從 state.pillars 更新），傳給移動和碰撞判定 */
+  solid = OBSTACLES.map(() => true);
+  /** 打壞的柱子哪個 tick 長回來 */
+  pillarRespawnTick = OBSTACLES.map(() => 0);
 
   onCreate() {
     this.state.phase = "waiting";
     this.state.killsToWin = ROUND.killsToWin;
+    this.ensurePillars();
     // 狀態同步頻率跟模擬頻率一致（預設是 50ms = 每秒 20 次），網路不穩時畫面能拿到更多樣本
     this.patchRate = 1000 / TICK_RATE;
     this.setFixedTimestep((ctx) => this.step(ctx), TICK_RATE);
@@ -161,6 +166,11 @@ export class ArenaRoom extends Room {
     }
   }
 
+  /** 每根柱子一筆血量（開發模式從舊版狀態還原時可能沒有，補上） */
+  ensurePillars() {
+    while (this.state.pillars.length < OBSTACLES.length) this.state.pillars.push(new Pillar({ hp: PILLAR.hp }));
+  }
+
   setPhase(phase, durationTicks = 0) {
     this.state.phase = phase;
     this.phaseEndTick = this.tick + durationTicks;
@@ -193,6 +203,7 @@ export class ArenaRoom extends Room {
       meta.energy = ENERGY.max;
     }
     this.clearProjectiles();
+    for (const pillar of this.state.pillars) pillar.hp = PILLAR.hp;
   }
 
   clearProjectiles() {
@@ -221,6 +232,8 @@ export class ArenaRoom extends Room {
     }
     this.updateCountdown();
 
+    this.updatePillars();
+
     // 倒數和結算時不能動、不能放技能
     const frozen = this.state.phase === "countdown" || this.state.phase === "ended";
 
@@ -231,7 +244,7 @@ export class ArenaRoom extends Room {
       const brain = this.meta.get(id)?.brain;
       if (brain) {
         const input = canAct(player) ? this.botThink(id, player, brain) : IDLE_INPUT;
-        stepEntity(player, input, ctx.dt);
+        stepEntity(player, input, ctx.dt, this.solid);
         if (input.skill > 0) this.tryCastSkill(id, player, input.skill - 1, input);
         continue;
       }
@@ -241,7 +254,7 @@ export class ArenaRoom extends Room {
       for (const input of channel) {
         // 不能動時當作沒有輸入，但仍要跑 stepEntity（冷卻倒數），才會和客戶端預測一致
         const ok = canAct(player);
-        stepEntity(player, ok ? input : IDLE_INPUT, ctx.dt);
+        stepEntity(player, ok ? input : IDLE_INPUT, ctx.dt, this.solid);
         if (ok && input.skill > 0) this.tryCastSkill(id, player, input.skill - 1, input);
       }
     }
@@ -270,6 +283,7 @@ export class ArenaRoom extends Room {
       players: this.state.players,
       projectiles: this.state.projectiles,
       blasts: this.state.blasts,
+      solid: this.solid,
       tick: this.tick,
       canCast: (i) => this.canCast(meta, player, i),
     });
@@ -346,6 +360,10 @@ export class ArenaRoom extends Room {
         if (Math.hypot(player.x - b.x, player.y - b.y) <= skill.radius + PLAYER_HALF) targets.push({ id, player });
       }
       this.broadcast("impact", { x: Math.round(b.x), y: Math.round(b.y), skill: b.skill, hit: targets.length > 0, area: true });
+      // 範圍內的柱子也會受傷
+      OBSTACLE_RECTS.forEach((r, i) => {
+        if (this.solid[i] && circleOverlapsRect(b.x, b.y, skill.radius, r)) this.damagePillar(i, skill.damage, b.owner);
+      });
       this.state.blasts.delete(blastId);
       this.blastDetonate.delete(blastId);
       for (const t of targets) {
@@ -390,9 +408,11 @@ export class ArenaRoom extends Room {
       p.y += p.vy * dt;
 
       const outOfArena = p.x < 0 || p.y < 0 || p.x > ARENA_WIDTH || p.y > ARENA_HEIGHT;
-      const blocked = circleHitsObstacle(p.x, p.y, SKILLS[p.skill].radius);
+      const pillarIndex = obstacleIndexHitByCircle(p.x, p.y, SKILLS[p.skill].radius, this.solid);
+      const blocked = pillarIndex >= 0;
       const expired = this.tick >= this.projectileExpire.get(projectileId);
       const target = blocked ? null : this.findHit(p);
+      if (blocked) this.damagePillar(pillarIndex, SKILLS[p.skill].damage, p.owner);
 
       if (target || blocked || outOfArena || expired) {
         // 通知所有人播特效：hit = 打中人（爆炸），否則是撞牆或時間到（冒煙）
@@ -404,6 +424,33 @@ export class ArenaRoom extends Room {
       if (target) this.applyDamage(target.id, target.player, p.owner, SKILLS[p.skill].damage);
       if (this.state.phase === "ended") return;
     }
+  }
+
+  /** 柱子受傷；打壞後不再擋人和技能，PILLAR.respawnTicks 後長回來 */
+  damagePillar(i, damage, attackerId) {
+    const pillar = this.state.pillars.at(i);
+    if (!pillar || pillar.hp === 0) return;
+    const dealt = Math.min(pillar.hp, damage);
+    pillar.hp -= dealt;
+    const attacker = this.state.players.get(attackerId);
+    if (attacker) attacker.rage = Math.min(RAGE.max, attacker.rage + dealt * RAGE.perStructureDamage);
+    if (pillar.hp === 0) {
+      this.solid[i] = false;
+      this.pillarRespawnTick[i] = this.tick + PILLAR.respawnTicks;
+    }
+  }
+
+  /** 更新 solid；時間到的柱子長回來（有人站在原地就等他離開，免得把人卡在裡面） */
+  updatePillars() {
+    this.ensurePillars();
+    this.state.pillars.forEach((pillar, i) => {
+      if (pillar.hp === 0 && this.tick >= this.pillarRespawnTick[i]) {
+        const onlyThis = OBSTACLES.map((_, j) => j === i);
+        const occupied = [...this.state.players.values()].some((p) => obstacleHitByBox(p.x, p.y, PLAYER_HALF, onlyThis));
+        if (!occupied) pillar.hp = PILLAR.hp;
+      }
+      this.solid[i] = pillar.hp > 0;
+    });
   }
 
   /** 圓形碰撞：找出第一個被打中的敵人 */
