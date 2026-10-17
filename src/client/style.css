@@ -146,6 +146,24 @@ html, body {
 #overlay .title { font-size: 26px; font-weight: bold; }
 #overlay .big { font-size: 72px; font-weight: bold; color: var(--accent); }
 #overlay .sub { font-size: 13px; color: var(--muted); line-height: 1.6; }
+#overlay .sub.small { font-size: 11px; }
+/* 疊加層本身不擋操作，只有按鈕可以點 */
+#overlay .overlay-btn {
+  pointer-events: auto;
+  font: inherit;
+  font-size: 16px;
+  font-weight: bold;
+  color: #14151d;
+  background: var(--accent);
+  border: 0;
+  border-radius: 8px;
+  padding: 10px 24px;
+  margin-top: 6px;
+  box-shadow: 0 4px 0 #a88f2a;
+  text-shadow: none;
+}
+#overlay .overlay-btn:active { transform: translateY(3px); box-shadow: 0 1px 0 #a88f2a; }
+#overlay .overlay-btn:disabled { opacity: 0.6; }
 #overlay.win .title { color: var(--accent); }
 #overlay.lose .title { color: #ff8a8a; }
 #overlay table { border-collapse: collapse; font-size: 14px; }

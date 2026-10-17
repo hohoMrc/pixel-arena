@@ -16,6 +16,13 @@ export class RoundOverlay {
     this.el = el;
     this.room = room;
     this.playSfx = playSfx;
+    // 等待畫面的「跟電腦對戰」按鈕（innerHTML 會重畫，所以用事件委派）
+    el.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-action=add-bot]");
+      if (!btn) return;
+      btn.disabled = true;
+      this.room.send("addBot");
+    });
   }
 
   update() {
@@ -35,7 +42,9 @@ export class RoundOverlay {
   showWaiting() {
     this.render("waiting", `
       <div class="title">等待對手加入…</div>
-      <div class="sub">按右上角「邀請」把網址傳給朋友<br>等待時可以自由練習</div>`);
+      <div class="sub">按右上角「邀請」把網址傳給朋友<br>等待時可以自由練習</div>
+      <button class="overlay-btn" data-action="add-bot">🤖 跟電腦對戰</button>
+      <div class="sub small">朋友加入時，電腦會自動讓位</div>`);
   }
 
   showCountdown(n) {

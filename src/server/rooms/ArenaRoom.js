@@ -2,6 +2,7 @@ import { Room } from "colyseus";
 import { ArenaState, Player, PlayerInput, Projectile } from "./schema.js";
 import { stepEntity } from "../../shared/movement.js";
 import { circleHitsObstacle } from "../../shared/obstacles.js";
+import { BotBrain } from "../bot.js";
 import {
   TICK_RATE, ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_MAX_HP,
   RESPAWN_TICKS, SKILLS, DASH_INDEX, SPAWN_POINTS, MAX_PLAYERS, ROUND, INPUT_SCALE,
@@ -26,6 +27,9 @@ function cleanName(raw) {
  *   countdown 倒數，所有人回出生點、不能動
  *   playing   對戰中，先拿到 ROUND.killsToWin 殺的獲勝
  *   ended     結算，顯示勝利者，時間到自動開下一局
+ *
+ * 電腦對手：等待時玩家可以按「跟電腦對戰」加入一隻（addBot 訊息）。
+ * 電腦是 state.players 裡的一般玩家，只是輸入由 bot.js 產生；有真人加入時電腦會讓位。
  */
 export class ArenaRoom extends Room {
   maxClients = MAX_PLAYERS;
@@ -46,7 +50,8 @@ export class ArenaRoom extends Room {
   joinCount = 0;
   /** 目前階段在哪個 tick 結束（倒數、結算用） */
   phaseEndTick = 0;
-  /** 不需要同步給客戶端的玩家資料：sessionId → { spawn, lastCastTick[], respawnTick } */
+  botCount = 0;
+  /** 不需要同步給客戶端的玩家資料：sessionId → { spawn, lastCastTick[], respawnTick, brain? }（brain = 電腦對手） */
   meta = new Map();
   /** 火球到期時間：projectileId → tick */
   projectileExpire = new Map();
@@ -57,11 +62,15 @@ export class ArenaRoom extends Room {
     // 狀態同步頻率跟模擬頻率一致（預設是 50ms = 每秒 20 次），網路不穩時畫面能拿到更多樣本
     this.patchRate = 1000 / TICK_RATE;
     this.setFixedTimestep((ctx) => this.step(ctx), TICK_RATE);
+    this.onMessage("addBot", () => this.addBot());
   }
 
   onJoin(client, options) {
+    // 有電腦在場就請它讓位，這一局重新開始
+    const replacedBot = this.removeOneBot();
+
     const index = this.joinCount++;
-    const spawn = SPAWN_POINTS[index % SPAWN_POINTS.length];
+    const spawn = this.pickSpawn(index);
     // 名稱、角色由玩家在進場畫面選，伺服器再檢查一次（不能相信客戶端送來的值）
     const name = cleanName(options?.name) || `P${index + 1}`;
     const skin = Number.isInteger(options?.skin) && options.skin >= 0 && options.skin < SKIN_COUNT
@@ -77,7 +86,47 @@ export class ArenaRoom extends Room {
     }));
     this.meta.set(client.sessionId, { spawn, lastCastTick: SKILLS.map(() => -Infinity), respawnTick: 0 });
     console.log(`[${this.roomId}] ${name} 加入`);
+    if (replacedBot && this.state.phase !== "waiting") this.startCountdown();
+    else this.checkPlayerCount();
+  }
+
+  /** 加入一隻電腦對手（只在等待中、還有空位時） */
+  addBot() {
+    if (this.state.phase !== "waiting" || this.state.players.size >= MAX_PLAYERS) return;
+    const id = `bot-${++this.botCount}`;
+    const spawn = this.pickSpawn(this.joinCount++);
+    // 盡量選和其他人不一樣的外觀
+    const usedSkins = new Set([...this.state.players.values()].map((p) => p.skin));
+    const freeSkins = [...Array(SKIN_COUNT).keys()].filter((s) => !usedSkins.has(s));
+    const pool = freeSkins.length ? freeSkins : [...Array(SKIN_COUNT).keys()];
+    const skin = pool[Math.floor(Math.random() * pool.length)];
+
+    this.state.players.set(id, new Player({
+      name: `電腦${this.botCount}`,
+      skin,
+      x: spawn.x, y: spawn.y, vx: 0, vy: 0,
+      faceX: spawn.x < ARENA_WIDTH / 2 ? INPUT_SCALE : -INPUT_SCALE, faceY: 0, dashTicks: 0, dashCd: 0,
+      hp: PLAYER_MAX_HP, alive: true, kills: 0, deaths: 0,
+    }));
+    this.meta.set(id, { spawn, lastCastTick: SKILLS.map(() => -Infinity), respawnTick: 0, brain: new BotBrain() });
+    console.log(`[${this.roomId}] 加入電腦對手 ${id}`);
     this.checkPlayerCount();
+  }
+
+  /** 移除一隻電腦，回傳是否有移除 */
+  removeOneBot() {
+    const botId = [...this.meta.keys()].find((id) => this.meta.get(id).brain);
+    if (!botId) return false;
+    this.state.players.delete(botId);
+    this.meta.delete(botId);
+    console.log(`[${this.roomId}] 電腦對手 ${botId} 讓位給真人`);
+    return true;
+  }
+
+  /** 選一個沒人用的出生點（都有人用時才依加入順序輪流） */
+  pickSpawn(index) {
+    const used = new Set([...this.meta.values()].map((m) => m.spawn));
+    return SPAWN_POINTS.find((s) => !used.has(s)) ?? SPAWN_POINTS[index % SPAWN_POINTS.length];
   }
 
   onLeave(client) {
@@ -170,15 +219,24 @@ export class ArenaRoom extends Room {
     const frozen = this.state.phase === "countdown" || this.state.phase === "ended";
 
     // 1. 處理每個玩家的輸入：移動 + 施放技能
+    const canAct = (player) => player.alive && !frozen;
     for (const [id, player] of this.state.players) {
+      // 電腦：每個 tick 由 bot.js 想一個輸入
+      const brain = this.meta.get(id)?.brain;
+      if (brain) {
+        const input = canAct(player) ? this.botThink(id, player, brain) : IDLE_INPUT;
+        stepEntity(player, input, ctx.dt);
+        if (input.skill > 0) this.tryCastSkill(id, player, input.skill - 1, input);
+        continue;
+      }
+
       const channel = this.inputs.get(id);
       if (!channel) continue;
-
       for (const input of channel) {
         // 不能動時當作沒有輸入，但仍要跑 stepEntity（冷卻倒數），才會和客戶端預測一致
-        const canAct = player.alive && !frozen;
-        stepEntity(player, canAct ? input : IDLE_INPUT, ctx.dt);
-        if (canAct && input.skill > 0) this.tryCastSkill(id, player, input.skill - 1, input);
+        const ok = canAct(player);
+        stepEntity(player, ok ? input : IDLE_INPUT, ctx.dt);
+        if (ok && input.skill > 0) this.tryCastSkill(id, player, input.skill - 1, input);
       }
     }
 
@@ -192,6 +250,17 @@ export class ArenaRoom extends Room {
         Object.assign(player, { x: meta.spawn.x, y: meta.spawn.y, vx: 0, vy: 0, hp: PLAYER_MAX_HP, alive: true, dashTicks: 0, dashCd: 0 });
       }
     }
+  }
+
+  botThink(id, player, brain) {
+    const meta = this.meta.get(id);
+    return brain.think({
+      id, player,
+      players: this.state.players,
+      projectiles: this.state.projectiles,
+      tick: this.tick,
+      canCast: (i) => this.tick - meta.lastCastTick[i] >= SKILLS[i].cooldownTicks,
+    });
   }
 
   tryCastSkill(id, player, skillIndex, input) {
