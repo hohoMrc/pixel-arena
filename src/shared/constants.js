@@ -32,7 +32,8 @@ export const ROUND = {
 /**
  * 技能清單。下方操作區的技能按鈕依這個陣列自動產生。
  * 輸入裡的 skill 值 = 陣列索引 + 1（0 代表沒放技能）。
- * type："projectile"（預設，發射飛行物）或 "dash"（衝刺，在 shared/movement.js 處理）。
+ * type："projectile"（預設，發射飛行物）、"blast"（指定地點爆炸，見 shared/blast.js）
+ *       或 "dash"（衝刺，在 shared/movement.js 處理）。
  * texture 對應 client/theme.js 的素材 key；impactScale 是命中爆炸的放大倍數（請用整數，像素才不會糊）。
  */
 export const SKILLS = [
@@ -48,13 +49,14 @@ export const SKILLS = [
   },
   {
     name: "爆炎",
+    type: "blast",       // 指定地點爆炸：丟到哪就在哪炸，地上會先出現預告圈
     texture: "bigfireball",
     impactScale: 2,
-    speed: 165,
-    radius: 10,
-    damage: 45,
+    range: 150,          // 最遠丟多遠（從角色中心算）
+    radius: 30,          // 爆炸範圍半徑
+    fuseTicks: 21,       // 預告多久才爆炸（21 = 0.7 秒），給對手躲的時間
+    damage: 40,
     cooldownTicks: 90,   // 3 秒
-    lifetimeTicks: 60,
   },
   {
     name: "衝刺",

@@ -38,6 +38,14 @@ export const Projectile = schema({
   vy: t.number(),
 });
 
+/** 指定地點爆炸：預告中的落點，時間到就爆炸並從 map 移除 */
+export const Blast = schema({
+  owner: t.string(),
+  skill: t.uint8(),
+  x: t.number(),
+  y: t.number(),
+});
+
 export const ArenaState = schema({
   phase: t.string(),       // "waiting" | "countdown" | "playing" | "ended"
   countdown: t.uint8(),    // 倒數 / 結算剩幾秒
@@ -45,4 +53,5 @@ export const ArenaState = schema({
   killsToWin: t.uint8(),
   players: t.map(Player),
   projectiles: t.map(Projectile),
+  blasts: t.map(Blast),
 });

@@ -1,5 +1,6 @@
 import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, SKILLS, DASH_INDEX, INPUT_SCALE, TICK_RATE } from "../shared/constants.js";
 import { circleHitsObstacle } from "../shared/obstacles.js";
+import { aimToward } from "../shared/blast.js";
 
 /**
  * 電腦對手的難度。數值越「準、快」越難，可以直接調。
@@ -9,7 +10,8 @@ export const BOT_CONFIG = {
   aimErrorDeg: 14,               // 瞄準誤差（±度）
   leadFactor: 0.8,               // 預判走位的程度（0 = 瞄現在位置，1 = 完全預判）
   fireChance: 0.12,              // 每個 tick 冷卻好了、有射線時開火的機率（模擬反應時間）
-  bigSkillMaxDistance: 170,      // 爆炎只在這個距離內使用（太遠容易被躲）
+  blastErrorPx: 14,              // 爆炎落點誤差（±單位）
+  blastEscapeChance: 0.6,        // 站在預告圈裡時跑出去的機率（每個預告圈只判斷一次）
   dodgeChance: 0.55,             // 看到火球飛來時有反應的機率（每顆火球只判斷一次）
   dashDodgeChance: 0.5,          // 有反應時用衝刺躲的機率（其他時候只是側移）
   dodgeLookAheadSec: 0.4,        // 火球多久內會打到才閃
@@ -18,7 +20,7 @@ export const BOT_CONFIG = {
 };
 
 const FIREBALL_INDEX = SKILLS.findIndex((s) => s.texture === "fireball");
-const BIG_INDEX = SKILLS.findIndex((s) => s.texture === "bigfireball");
+const BLAST_INDEX = SKILLS.findIndex((s) => s.type === "blast");
 
 const rand = (min, max) => min + Math.random() * (max - min);
 const randInt = ([min, max]) => Math.floor(rand(min, max + 1));
@@ -48,8 +50,9 @@ function hasLineOfSight(ax, ay, bx, by, radius) {
 export class BotBrain {
   strafeDir = Math.random() < 0.5 ? 1 : -1;
   nextStrafeSwitch = 0;
-  /** 已經判斷過要不要閃的火球 */
+  /** 已經判斷過要不要閃的火球、預告圈 */
   seenProjectiles = new Set();
+  seenBlasts = new Set();
   /** 正在閃避：{ x, y, until }（側移方向、持續到哪個 tick） */
   dodge = null;
   /** 卡住偵測 */
@@ -59,9 +62,9 @@ export class BotBrain {
   unstickDir = { x: 0, y: 0 };
 
   /**
-   * @param {object} ctx { id, player, players, projectiles, tick, canCast(skillIndex) }
+   * @param {object} ctx { id, player, players, projectiles, blasts, tick, canCast(skillIndex) }
    */
-  think({ id, player, players, projectiles, tick, canCast }) {
+  think({ id, player, players, projectiles, blasts, tick, canCast }) {
     const input = { moveX: 0, moveY: 0, skill: 0, aimX: 0, aimY: 0 };
     const target = this.findTarget(id, player, players);
     const threat = this.findThreat(id, player, projectiles, tick);
@@ -77,6 +80,16 @@ export class BotBrain {
       }
     }
     if (this.dodge && tick >= this.dodge.until) this.dodge = null;
+
+    // 站在別人的預告圈裡 → 往圈外跑
+    const zone = this.findBlastZone(id, player, blasts);
+    if (zone) {
+      const away = toInput(player.x - zone.x || 1, player.y - zone.y);
+      this.dodge = { ...away, until: tick + 6 };
+      if (Math.random() < BOT_CONFIG.dashDodgeChance && player.dashCd === 0 && DASH_INDEX >= 0) {
+        input.skill = DASH_INDEX + 1;
+      }
+    }
 
     // 2. 移動
     let move;
@@ -130,6 +143,19 @@ export class BotBrain {
     return null;
   }
 
+  /** 自己在不在別人的預告圈裡（每個圈只擲一次骰子決定有沒有反應） */
+  findBlastZone(id, player, blasts) {
+    for (const [blastId, b] of blasts) {
+      if (b.owner === id || this.seenBlasts.has(blastId)) continue;
+      const reach = SKILLS[b.skill].radius + PLAYER_HALF + 4;
+      if (Math.hypot(player.x - b.x, player.y - b.y) > reach) continue;
+      this.seenBlasts.add(blastId);
+      if (Math.random() < BOT_CONFIG.blastEscapeChance) return b;
+    }
+    if (this.seenBlasts.size > 50) this.seenBlasts.clear();
+    return null;
+  }
+
   /** 保持距離 + 繞圈 + 離牆遠一點 */
   chooseMove(player, target, tick) {
     if (tick >= this.nextStrafeSwitch) {
@@ -168,10 +194,24 @@ export class BotBrain {
     if (Math.random() > BOT_CONFIG.fireChance) return null;
     const dist = Math.hypot(target.x - player.x, target.y - player.y);
 
-    let skillIndex = -1;
-    if (BIG_INDEX >= 0 && canCast(BIG_INDEX) && dist < BOT_CONFIG.bigSkillMaxDistance) skillIndex = BIG_INDEX;
-    else if (FIREBALL_INDEX >= 0 && canCast(FIREBALL_INDEX)) skillIndex = FIREBALL_INDEX;
-    if (skillIndex < 0) return null;
+    // 爆炎：目標在射程內就丟，落點預判對手爆炸時會走到哪
+    if (BLAST_INDEX >= 0 && canCast(BLAST_INDEX)) {
+      const blast = SKILLS[BLAST_INDEX];
+      if (dist < blast.range + blast.radius * 0.5) {
+        const fuse = (blast.fuseTicks / TICK_RATE) * BOT_CONFIG.leadFactor;
+        const err = BOT_CONFIG.blastErrorPx;
+        const aim = aimToward(
+          player.x, player.y,
+          target.x + target.vx * fuse + rand(-err, err),
+          target.y + target.vy * fuse + rand(-err, err),
+          blast,
+        );
+        return { skill: BLAST_INDEX + 1, aimX: aim.x, aimY: aim.y };
+      }
+    }
+
+    const skillIndex = FIREBALL_INDEX;
+    if (skillIndex < 0 || !canCast(skillIndex)) return null;
 
     const skill = SKILLS[skillIndex];
     if (dist > skill.speed * (skill.lifetimeTicks / TICK_RATE)) return null; // 射不到

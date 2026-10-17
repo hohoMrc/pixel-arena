@@ -1,8 +1,9 @@
 import { Room } from "colyseus";
-import { ArenaState, Player, PlayerInput, Projectile } from "./schema.js";
+import { ArenaState, Player, PlayerInput, Projectile, Blast } from "./schema.js";
 import { stepEntity } from "../../shared/movement.js";
 import { circleHitsObstacle } from "../../shared/obstacles.js";
 import { BotBrain } from "../bot.js";
+import { blastTarget, aimToward } from "../../shared/blast.js";
 import {
   TICK_RATE, ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_MAX_HP,
   RESPAWN_TICKS, SKILLS, DASH_INDEX, SPAWN_POINTS, MAX_PLAYERS, ROUND, INPUT_SCALE,
@@ -55,6 +56,8 @@ export class ArenaRoom extends Room {
   meta = new Map();
   /** 火球到期時間：projectileId → tick */
   projectileExpire = new Map();
+  /** 爆炸時間：blastId → tick */
+  blastDetonate = new Map();
 
   onCreate() {
     this.state.phase = "waiting";
@@ -194,6 +197,8 @@ export class ArenaRoom extends Room {
   clearProjectiles() {
     this.state.projectiles.clear();
     this.projectileExpire.clear();
+    this.state.blasts.clear();
+    this.blastDetonate.clear();
   }
 
   /** 倒數 / 結算剩幾秒（只在數字變了才會同步給客戶端） */
@@ -240,8 +245,9 @@ export class ArenaRoom extends Room {
       }
     }
 
-    // 2. 移動火球、判定命中
+    // 2. 移動火球、判定命中；預告時間到的爆炸
     this.updateProjectiles(ctx.dt);
+    if (this.state.phase !== "ended") this.updateBlasts();
 
     // 3. 復活
     for (const [id, player] of this.state.players) {
@@ -258,6 +264,7 @@ export class ArenaRoom extends Room {
       id, player,
       players: this.state.players,
       projectiles: this.state.projectiles,
+      blasts: this.state.blasts,
       tick: this.tick,
       canCast: (i) => this.tick - meta.lastCastTick[i] >= SKILLS[i].cooldownTicks,
     });
@@ -269,6 +276,11 @@ export class ArenaRoom extends Room {
     const meta = this.meta.get(id);
     if (this.tick - meta.lastCastTick[skillIndex] < skill.cooldownTicks) return;
     meta.lastCastTick[skillIndex] = this.tick;
+
+    if (skill.type === "blast") {
+      this.castBlast(id, player, skillIndex, skill, input);
+      return;
+    }
 
     const [dirX, dirY] = this.aimDirection(id, player, input);
     const projectileId = String(this.nextProjectileId++);
@@ -282,6 +294,42 @@ export class ArenaRoom extends Room {
       vy: dirY * skill.speed,
     }));
     this.projectileExpire.set(projectileId, this.tick + skill.lifetimeTicks);
+  }
+
+  /** 指定地點爆炸：輕點 = 丟向最近的敵人（超過射程就丟到最遠），拖曳 = 丟到瞄準的位置 */
+  castBlast(id, player, skillIndex, skill, input) {
+    let aim = { x: input.aimX, y: input.aimY };
+    if (aim.x === 0 && aim.y === 0) {
+      const target = this.nearestEnemy(id, player);
+      aim = target
+        ? aimToward(player.x, player.y, target.x, target.y, skill)
+        : { x: Math.round(player.faceX * 0.6), y: Math.round(player.faceY * 0.6) }; // 沒有敵人就丟到前方
+    }
+    const { x, y } = blastTarget(player.x, player.y, aim.x, aim.y, skill);
+    const blastId = String(this.nextProjectileId++);
+    this.state.blasts.set(blastId, new Blast({ owner: id, skill: skillIndex, x, y }));
+    this.blastDetonate.set(blastId, this.tick + skill.fuseTicks);
+  }
+
+  /** 預告時間到就爆炸：範圍內的敵人全部受傷（衝刺中無敵一樣有效） */
+  updateBlasts() {
+    for (const [blastId, b] of this.state.blasts) {
+      if (this.tick < this.blastDetonate.get(blastId)) continue;
+      const skill = SKILLS[b.skill];
+      const targets = [];
+      for (const [id, player] of this.state.players) {
+        if (id === b.owner || !player.alive) continue;
+        if (player.dashTicks > 0 && SKILLS[DASH_INDEX]?.invulnerable) continue;
+        if (Math.hypot(player.x - b.x, player.y - b.y) <= skill.radius + PLAYER_HALF) targets.push({ id, player });
+      }
+      this.broadcast("impact", { x: Math.round(b.x), y: Math.round(b.y), skill: b.skill, hit: targets.length > 0, area: true });
+      this.state.blasts.delete(blastId);
+      this.blastDetonate.delete(blastId);
+      for (const t of targets) {
+        this.applyDamage(t.id, t.player, b.owner, skill.damage);
+        if (this.state.phase === "ended") return; // 致勝一擊會清空場上所有技能
+      }
+    }
   }
 
   /**

@@ -5,13 +5,15 @@ import { theme } from "./theme.js";
 const DEAD_ZONE = 0.3;
 /** 技能鍵拖超過這個距離（px）才算手動瞄準，沒超過放開 = 自動瞄準 */
 const AIM_DEAD_ZONE_PX = 16;
+/** 指定地點技能：拖這麼遠（px）= 丟到最遠，拖越短丟越近 */
+const AIM_MAX_DRAG_PX = 70;
 /** 放開技能時還在冷卻，最多等這麼久（ms）冷卻好了再自動放出去，免得按太快被吃掉 */
 const CAST_BUFFER_MS = 200;
 
-/** 角度轉成輸入用的整數方向向量 */
-const toInputDir = (dx, dy) => {
+/** 角度轉成輸入用的整數方向向量；power（0~1）是向量長度，指定地點技能用來表示距離 */
+const toInputDir = (dx, dy, power = 1) => {
   const len = Math.hypot(dx, dy) || 1;
-  return { x: Math.round((dx / len) * INPUT_SCALE), y: Math.round((dy / len) * INPUT_SCALE) };
+  return { x: Math.round((dx / len) * power * INPUT_SCALE), y: Math.round((dy / len) * power * INPUT_SCALE) };
 };
 
 /** 鍵盤對應（桌機測試用） */
@@ -28,13 +30,14 @@ const KEYS = {
  * 攻擊技能（火球等）：
  *   輕點 → 放開時發射，自動瞄準最近的敵人（aim = 0，由伺服器找目標）
  *   按住拖曳 → 往拖的方向瞄準（畫面會顯示瞄準線），放開才發射
+ *   指定地點技能（爆炎）：拖越遠丟越遠，畫面顯示落點圈
  * 衝刺：按下立刻衝，方向 = 移動方向。
  */
 export class Controls {
   stick = { x: 0, y: 0 };      // 搖桿方向（-INPUT_SCALE ~ INPUT_SCALE）
   heldSkills = new Set();      // 正在按住的技能索引（衝刺、鍵盤）
   heldKeys = new Set();
-  /** 正在拖曳瞄準：{ skill, x, y }（x/y 是單位向量），沒有則為 null。ArenaScene 用來畫瞄準線 */
+  /** 正在拖曳瞄準：{ skill, x, y, power }（x/y 是單位向量，power 0~1 是拖多遠），沒有則為 null。ArenaScene 用來畫瞄準線 */
   aiming = null;
   /** 放開後等著送出的技能：{ skill, aimX, aimY, at } */
   pendingCast = null;
@@ -174,13 +177,16 @@ export class Controls {
       const dx = e.clientX - drag.startX;
       const dy = e.clientY - drag.startY;
       const dist = Math.hypot(dx, dy);
-      this.aiming = dist < AIM_DEAD_ZONE_PX ? null : { skill: i, x: dx / dist, y: dy / dist };
+      this.aiming = dist < AIM_DEAD_ZONE_PX
+        ? null
+        : { skill: i, x: dx / dist, y: dy / dist, power: Math.min(1, dist / AIM_MAX_DRAG_PX) };
       btn.classList.toggle("aiming", !!this.aiming);
     });
     const finish = (e, cast) => {
       if (e.pointerId !== drag?.pointerId) return;
       if (cast) {
-        const aim = this.aiming ? toInputDir(this.aiming.x, this.aiming.y) : { x: 0, y: 0 };
+        // 子彈只看方向（伺服器會正規化），指定地點技能用長度決定距離
+        const aim = this.aiming ? toInputDir(this.aiming.x, this.aiming.y, this.aiming.power) : { x: 0, y: 0 };
         this.pendingCast = { skill: i, aimX: aim.x, aimY: aim.y, at: performance.now() };
       }
       drag = null;

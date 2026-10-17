@@ -1,10 +1,11 @@
 import * as Phaser from "phaser";
 import { Callbacks } from "@colyseus/sdk";
-import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_MAX_HP, SKILLS, DASH_INDEX, TICK_RATE } from "../../shared/constants.js";
+import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_MAX_HP, SKILLS, DASH_INDEX, TICK_RATE, INPUT_SCALE } from "../../shared/constants.js";
 import { theme, playerTextureKey, walkTextureKey } from "../theme.js";
 import { createMissingTextures } from "../placeholders.js";
 import { OBSTACLE_RECTS, circleHitsObstacle } from "../../shared/obstacles.js";
 import { RoundOverlay } from "../roundOverlay.js";
+import { blastTarget } from "../../shared/blast.js";
 
 /** 停下來多久後才切回站立圖（ms），避免插值的小停頓讓動畫一直閃 */
 const WALK_HOLD_MS = 120;
@@ -24,6 +25,21 @@ const HIT_FEEDBACK = {
 /** 拖曳瞄準時的指示線：一排小點，長度 = 技能射程 */
 const AIM_GUIDE = { spacing: 10, dotRadius: 2, alpha: 0.9 };
 
+/** 腳下的影子（橢圓）。深度固定在地板上一層，所以會被柱子、角色蓋住 */
+const SHADOW = {
+  depth: 0.5,
+  player: { w: 24, h: 8, alpha: 0.6 },
+  projectile: { w: 12, h: 5, alpha: 0.35, offsetY: PLAYER_HALF + 2 }, // 火球在空中飛，影子落在地上
+};
+
+/** 指定地點爆炸的預告：紅圈 + 從天上掉下來的火球 */
+const BLAST_FX = {
+  color: 0xff4d2e,
+  ringAlpha: 0.9,
+  fillAlpha: 0.28,
+  dropHeight: 150,   // 火球從落點上方多高開始掉
+};
+
 /**
  * 對戰場景：只負責「畫出伺服器狀態」和「送出輸入」。
  * 遊戲規則都在 server/rooms/ArenaRoom.js。
@@ -37,7 +53,8 @@ export class ArenaScene extends Phaser.Scene {
   init(data) {
     Object.assign(this, data);
     this.playerViews = new Map();     // sessionId → { sprite, label, lastX, lastY, walkUntil, lastHp, flashUntil, jitterUntil }
-    this.projectileViews = new Map(); // projectileId → { sprite, x, y, at, sampleX, sampleY, sampleAt }
+    this.projectileViews = new Map(); // projectileId → { sprite, shadow, x, y, at, sampleX, sampleY, sampleAt }
+    this.blastViews = new Map();      // blastId → { fireball, shadow, startAt, fuseMs }
   }
 
   preload() {
@@ -65,6 +82,9 @@ export class ArenaScene extends Phaser.Scene {
     this.createObstacles();
     this.bars = this.add.graphics().setDepth(1000); // 血條統一畫在最上層
     this.aimGuide = this.add.graphics().setDepth(999);
+    this.blastGraphics = this.add.graphics().setDepth(SHADOW.depth + 0.1); // 預告圈畫在地上
+    this.createShadowTexture("shadow-player", SHADOW.player);
+    this.createShadowTexture("shadow-projectile", SHADOW.projectile);
     this.deadText = this.add.text(ARENA_WIDTH / 2, ARENA_HEIGHT / 2, "復活中…", {
       fontFamily: "monospace", fontSize: "12px", color: "#ffffff", resolution: 4,
     }).setOrigin(0.5).setDepth(1001).setVisible(false);
@@ -78,8 +98,9 @@ export class ArenaScene extends Phaser.Scene {
         fontFamily: "monospace", fontSize: "8px", color: id === this.room.sessionId ? "#ffe066" : "#ffffff",
         resolution: 4,
       }).setOrigin(0.5, 1);
+      const shadow = this.add.image(player.x, player.y, "shadow-player").setDepth(SHADOW.depth).setAlpha(SHADOW.player.alpha);
       this.playerViews.set(id, {
-        sprite, label, lastX: player.x, lastY: player.y, walkUntil: 0,
+        sprite, label, shadow, lastX: player.x, lastY: player.y, walkUntil: 0,
         lastHp: player.hp, lastAlive: player.alive, flashUntil: 0, jitterUntil: 0,
         wasDashing: false, nextTrailAt: 0,
       });
@@ -88,6 +109,7 @@ export class ArenaScene extends Phaser.Scene {
       const view = this.playerViews.get(id);
       view?.sprite.destroy();
       view?.label.destroy();
+      view?.shadow.destroy();
       this.playerViews.delete(id);
     });
 
@@ -95,13 +117,32 @@ export class ArenaScene extends Phaser.Scene {
       const sprite = this.add.image(p.x, p.y, SKILLS[p.skill]?.texture ?? "fireball");
       sprite.setDepth(p.y + 0.1);
       sprite.setRotation(Math.atan2(p.vy, p.vx));
+      const shadow = this.add.image(p.x, p.y + SHADOW.projectile.offsetY, "shadow-projectile")
+        .setDepth(SHADOW.depth).setAlpha(SHADOW.projectile.alpha);
       const now = performance.now();
-      this.projectileViews.set(id, { sprite, x: p.x, y: p.y, at: now, sampleX: p.x, sampleY: p.y, sampleAt: now });
+      this.projectileViews.set(id, { sprite, shadow, x: p.x, y: p.y, at: now, sampleX: p.x, sampleY: p.y, sampleAt: now });
       this.playSfx(theme.skillSounds[p.skill]?.cast, p.owner === this.room.sessionId ? 1 : theme.othersVolume);
     });
     callbacks.onRemove("projectiles", (_p, id) => {
       this.projectileViews.get(id)?.sprite.destroy();
+      this.projectileViews.get(id)?.shadow.destroy();
       this.projectileViews.delete(id);
+    });
+
+    // 指定地點爆炸：預告期間火球從天上掉下來，地上的紅圈慢慢填滿
+    callbacks.onAdd("blasts", (b, id) => {
+      const skill = SKILLS[b.skill];
+      const fireball = this.add.image(b.x, b.y - BLAST_FX.dropHeight, skill.texture)
+        .setRotation(Math.PI / 2).setDepth(1002); // 圖片朝右，轉成朝下
+      const shadow = this.add.image(b.x, b.y, "shadow-projectile").setDepth(SHADOW.depth).setAlpha(0);
+      this.blastViews.set(id, { fireball, shadow, startAt: performance.now(), fuseMs: (skill.fuseTicks / TICK_RATE) * 1000 });
+      this.playSfx(theme.skillSounds[b.skill]?.cast, b.owner === this.room.sessionId ? 1 : theme.othersVolume);
+    });
+    callbacks.onRemove("blasts", (_b, id) => {
+      const view = this.blastViews.get(id);
+      view?.fireball.destroy();
+      view?.shadow.destroy();
+      this.blastViews.delete(id);
     });
 
     this.room.onMessage("impact", (impact) => this.spawnImpact(impact));
@@ -156,6 +197,7 @@ export class ArenaScene extends Phaser.Scene {
       this.updateFlash(view, now);
       this.updateDash(view, player, isSelf, now);
       view.label.setPosition(Math.round(x), headY - 4).setDepth(feetY + 0.5);
+      view.shadow.setPosition(Math.round(x), feetY).setAlpha(player.alive ? SHADOW.player.alpha : SHADOW.player.alpha * 0.4);
 
       if (player.alive) this.drawHpBar(x, headY, player.hp / PLAYER_MAX_HP);
     }
@@ -164,6 +206,7 @@ export class ArenaScene extends Phaser.Scene {
       const view = this.projectileViews.get(id);
       if (view) this.drawProjectile(view, p, now);
     }
+    this.drawBlasts(now);
 
     this.drawAimGuide(self, canAct);
 
@@ -171,16 +214,56 @@ export class ArenaScene extends Phaser.Scene {
     this.deadText.setVisible(!!self && !self.alive && (phase === "playing" || phase === "waiting"));
   }
 
-  /** 拖曳技能鍵時，從自己身上往瞄準方向畫一排點，長度等於射程，碰到柱子或場地邊緣就停 */
+  /** 預告圈：外圈固定，內圈隨時間填滿；火球從上方掉到落點，影子越來越深 */
+  drawBlasts(now) {
+    this.blastGraphics.clear();
+    for (const [id, b] of this.room.state.blasts) {
+      const view = this.blastViews.get(id);
+      if (!view) continue;
+      const radius = SKILLS[b.skill].radius;
+      const t = Math.min(1, (now - view.startAt) / view.fuseMs);
+      this.blastGraphics.lineStyle(1, BLAST_FX.color, BLAST_FX.ringAlpha).strokeCircle(b.x, b.y, radius);
+      this.blastGraphics.fillStyle(BLAST_FX.color, BLAST_FX.fillAlpha).fillCircle(b.x, b.y, radius * t);
+      // 加速落下（t²），越接近爆炸掉越快
+      view.fireball.setPosition(Math.round(b.x), Math.round(b.y - BLAST_FX.dropHeight * (1 - t * t)));
+      view.shadow.setAlpha(SHADOW.projectile.alpha * 1.5 * t).setScale(0.6 + t);
+    }
+  }
+
+  /** 腳下影子的橢圓材質（像素風：不做模糊，直接一個實心橢圓） */
+  createShadowTexture(key, { w, h }) {
+    if (this.textures.exists(key)) return;
+    const g = this.make.graphics({ x: 0, y: 0 }, false);
+    g.fillStyle(0x000000, 1).fillEllipse(w / 2, h / 2, w, h);
+    g.generateTexture(key, w, h);
+    g.destroy();
+  }
+
+  /**
+   * 拖曳技能鍵時的瞄準指示：
+   *   子彈 → 從自己身上往瞄準方向畫一排點，長度等於射程，碰到柱子或場地邊緣就停
+   *   指定地點 → 自己周圍畫射程圈，落點畫爆炸範圍
+   */
   drawAimGuide(self, canAct) {
     this.aimGuide.clear();
     const aim = this.controls.aiming;
     if (!aim || !self || !canAct) return;
     const skill = SKILLS[aim.skill];
-    const range = skill.speed * (skill.lifetimeTicks / TICK_RATE);
     const x = this.predict.value(self, "x");
     const y = this.predict.value(self, "y");
-    this.aimGuide.fillStyle(theme.aimGuideColors?.[aim.skill] ?? 0xffffff, AIM_GUIDE.alpha);
+    const color = theme.aimGuideColors?.[aim.skill] ?? 0xffffff;
+
+    if (skill.type === "blast") {
+      // 和伺服器用同一個函式算落點，看到哪就炸哪
+      const target = blastTarget(x, y, aim.x * aim.power * INPUT_SCALE, aim.y * aim.power * INPUT_SCALE, skill);
+      this.aimGuide.lineStyle(1, color, 0.35).strokeCircle(x, y, skill.range);
+      this.aimGuide.lineStyle(1, color, AIM_GUIDE.alpha).strokeCircle(target.x, target.y, skill.radius);
+      this.aimGuide.fillStyle(color, 0.2).fillCircle(target.x, target.y, skill.radius);
+      return;
+    }
+
+    const range = skill.speed * (skill.lifetimeTicks / TICK_RATE);
+    this.aimGuide.fillStyle(color, AIM_GUIDE.alpha);
     for (let d = PLAYER_HALF + AIM_GUIDE.spacing; d <= range; d += AIM_GUIDE.spacing) {
       const px = x + aim.x * d;
       const py = y + aim.y * d;
@@ -252,11 +335,14 @@ export class ArenaScene extends Phaser.Scene {
     this.anims.create({ key: "impact-miss", frames: this.anims.generateFrameNumbers("explosion", { start: 3, end: 4 }), frameRate });
   }
 
-  spawnImpact({ x, y, skill, hit }) {
-    this.playSfx(hit ? theme.skillSounds[skill]?.hit : "fizzle", hit ? 1 : 0.5);
-    const key = hit ? "impact-hit" : "impact-miss";
+  /** area = 指定地點爆炸：不管有沒有打到人都是完整的大爆炸 */
+  spawnImpact({ x, y, skill, hit, area }) {
+    const big = hit || area;
+    this.playSfx(big ? theme.skillSounds[skill]?.hit : "fizzle", big ? 1 : 0.5);
+    if (area) this.cameras.main.shake(100, 0.004);
+    const key = big ? "impact-hit" : "impact-miss";
     if (!this.anims.exists(key)) return;
-    const scale = hit ? (SKILLS[skill]?.impactScale ?? 1) : 1;
+    const scale = big ? (SKILLS[skill]?.impactScale ?? 1) : 1;
     const fx = this.add.sprite(x, y, "explosion").setScale(scale).setDepth(1001);
     fx.play(key);
     fx.once("animationcomplete", () => fx.destroy());
@@ -320,6 +406,7 @@ export class ArenaScene extends Phaser.Scene {
     view.y = pos.y;
     view.at = now;
     view.sprite.setPosition(Math.round(pos.x), Math.round(pos.y)).setDepth(pos.y + 0.1); // 跟角色、柱子一樣依 y 排前後
+    view.shadow.setPosition(Math.round(pos.x), Math.round(pos.y + SHADOW.projectile.offsetY));
   }
 
   /** 播音效；靜音中或檔案沒載入成功就略過 */
