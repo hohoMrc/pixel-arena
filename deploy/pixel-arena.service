@@ -1,0 +1,20 @@
+# systemd 服務：/etc/systemd/system/pixel-arena.service
+# 當掉會自動重啟，開機自動啟動
+[Unit]
+Description=Pixel Arena game server
+After=network.target
+
+[Service]
+User=ubuntu
+WorkingDirectory=/home/ubuntu/pixel-arena
+Environment=NODE_ENV=production
+Environment=PORT=8003
+Environment=HOST=127.0.0.1
+ExecStart=/usr/bin/node src/server/main.js
+Restart=always
+RestartSec=3
+# 記憶體保險：機器只有 1GB，超過就重啟這個服務，不影響其他服務
+MemoryMax=300M
+
+[Install]
+WantedBy=multi-user.target

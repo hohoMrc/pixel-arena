@@ -68,5 +68,14 @@ public/assets/         圖片放這裡
 
 ## 部署
 
-- 前端（GitHub Pages）：`VITE_SERVER_URL=wss://你的伺服器 npm run build:client`，上傳 `dist/client/`
-- 後端（Fly.io／Render 等）：`npm run build` 後執行 `npm start`
+線上網址：**https://arena.holin.cc/**（EC2 東京，Caddy 提供 HTTPS）
+
+```bash
+deploy/deploy.sh   # 打包前端、上傳、重啟遊戲伺服器
+```
+
+- 網頁檔案放在 EC2 的 `/var/www/pixel-arena`，由 Caddy 直接提供
+- 遊戲伺服器：`~/pixel-arena`，systemd 服務 `pixel-arena`（`deploy/pixel-arena.service`），只監聽 `127.0.0.1:8003`
+- Caddy 設定見 `deploy/Caddyfile.snippet`；舊網址 `hoho-game.duckdns.org/arena/` 會轉到新網址
+- 正式環境的伺服器啟動檔是 `src/server/main.js`（`npm start`，可用 `PORT`、`HOST` 環境變數設定）
+- 前端預設連到「網頁所在的位置」；前後端分開放時，打包前設定 `VITE_SERVER_URL`

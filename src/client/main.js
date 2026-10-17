@@ -12,10 +12,11 @@ import "./style.css";
 const $ = (id) => document.getElementById(id);
 
 /**
- * 其他玩家的插值緩衝（毫秒）。透過 Cloudflare 通道實測：狀態更新偶爾會隔 140ms 才到，
- * 預設 100ms 不夠，角色會一頓一頓。區網直連可以調小（例如 80）讓畫面更即時。
+ * 其他玩家的插值緩衝（毫秒）。要大於狀態更新偶爾的最長間隔，不然角色會停一下再跳。
+ * 實測：EC2（東京）來回 40ms、更新最長間隔 38ms → 100 有餘裕。
+ * 透過 Cloudflare 通道時最長間隔到 130ms 以上，要調到 150。
  */
-const INTERP_DELAY_MS = 150;
+const INTERP_DELAY_MS = 100;
 
 // iPhone 雙指縮放、連點放大，光靠 CSS 擋不住
 document.addEventListener("gesturestart", (e) => e.preventDefault());

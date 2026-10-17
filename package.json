@@ -6,20 +6,19 @@
   "description": "像素風即時對戰遊戲（Phaser + Colyseus）",
   "scripts": {
     "dev": "vite --host",
-    "build": "vite build",
-    "build:client": "vite build --mode client",
-    "start": "node dist/server/server.mjs"
+    "build": "vite build --mode client",
+    "start": "node src/server/main.js"
   },
   "engines": {
     "node": ">=22"
   },
   "dependencies": {
     "@colyseus/schema": "^5.0.40",
-    "@colyseus/sdk": "^0.18.5",
-    "colyseus": "^0.18.9",
-    "phaser": "^4.2.1"
+    "colyseus": "^0.18.9"
   },
   "devDependencies": {
+    "@colyseus/sdk": "^0.18.5",
+    "phaser": "^4.2.1",
     "vite": "^8.3.4"
   }
 }

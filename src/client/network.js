@@ -2,12 +2,14 @@ import { ColyseusSDK } from "@colyseus/sdk";
 
 /**
  * 遊戲伺服器位址：
- * - 開發時前後端同一個埠號，直接用目前網址
- * - 前端放 GitHub Pages、後端放別處時，打包前設定 VITE_SERVER_URL（例如 wss://xxx.fly.dev）
+ * - 預設和網頁同一個位置，包含路徑。例如網頁在 https://hoho-game.duckdns.org/arena/，
+ *   就連 wss://hoho-game.duckdns.org/arena（Caddy 再轉給遊戲伺服器）
+ * - 前端和後端放在不同地方時，打包前設定 VITE_SERVER_URL（例如 wss://xxx.example.com）
  */
+const pageDir = new URL(".", location.href);
 const SERVER_URL =
   import.meta.env.VITE_SERVER_URL ||
-  `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`;
+  `${pageDir.protocol === "https:" ? "wss" : "ws"}://${pageDir.host}${pageDir.pathname.replace(/\/$/, "")}`;
 
 const client = new ColyseusSDK(SERVER_URL);
 

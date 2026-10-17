@@ -1,0 +1,23 @@
+# /etc/caddy/Caddyfile 裡和 pixel-arena 有關的設定
+
+# 1) 遊戲網址：arena.holin.cc（DNS 在 Cloudflare，A 記錄指向 EC2，Proxy 關閉）
+#    有的檔案（網頁、圖片、音效）→ Caddy 直接提供
+#    其他（配對、WebSocket）→ 遊戲伺服器 localhost:8003
+arena.holin.cc {
+    encode zstd gzip
+    root * /var/www/pixel-arena
+    @static file {path} {path}/index.html
+    handle @static {
+        file_server
+    }
+    handle {
+        reverse_proxy localhost:8003
+    }
+}
+
+# 2) 舊網址：放在 hoho-game.duckdns.org { ... } 裡面（respond 404 之前），
+#    把 /arena/ 底下的連結（含 ?room=）轉到新網址
+    redir /arena https://arena.holin.cc/ 308
+    handle_path /arena/* {
+        redir https://arena.holin.cc{uri} 308
+    }
