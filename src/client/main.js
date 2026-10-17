@@ -7,6 +7,7 @@ import { joinArena } from "./network.js";
 import { Controls } from "./controls.js";
 import { ArenaScene } from "./scenes/ArenaScene.js";
 import { escapeHtml } from "./escapeHtml.js";
+import { showLobby } from "./lobby.js";
 import "./style.css";
 
 const $ = (id) => document.getElementById(id);
@@ -26,8 +27,11 @@ const statusEl = $("status");
 async function main() {
   const controls = new Controls({ joystick: $("joystick"), knob: $("knob"), skillsEl: $("skills") });
 
+  statusEl.textContent = "選擇角色";
+  const profile = await showLobby($("lobby"));
+
   statusEl.textContent = "連線中…";
-  const room = await joinArena();
+  const room = await joinArena(profile);
   const predict = Predict.get(room);
 
   // 其他玩家：畫面刻意晚 INTERP_DELAY_MS 顯示，在前後兩個伺服器快照之間插值。
@@ -94,6 +98,7 @@ function setupMute(game) {
 
 function setupHud(room) {
   statusEl.textContent = `房間 ${room.roomId}`;
+  $("share").hidden = false; // 加入房間後網址才有房號，這時才能邀請
 
   $("share").addEventListener("click", async () => {
     try {

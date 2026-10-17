@@ -92,3 +92,8 @@ export const SPAWN_POINTS = [
 ];
 
 export const MAX_PLAYERS = SPAWN_POINTS.length;
+
+/** 可選的角色外觀數量（skin 0 ~ SKIN_COUNT-1），要和 client/theme.js 的 skins 一致 */
+export const SKIN_COUNT = 4;
+/** 名稱最長幾個字 */
+export const NAME_MAX_LENGTH = 12;

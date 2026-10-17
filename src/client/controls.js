@@ -192,7 +192,10 @@ export class Controls {
   }
 
   setupKeyboard() {
-    addEventListener("keydown", (e) => this.heldKeys.add(e.key.toLowerCase()));
+    addEventListener("keydown", (e) => {
+      if (e.target instanceof HTMLInputElement) return; // 在輸入框打字不算操作
+      this.heldKeys.add(e.key.toLowerCase());
+    });
     addEventListener("keyup", (e) => this.heldKeys.delete(e.key.toLowerCase()));
     addEventListener("blur", () => this.heldKeys.clear());
   }

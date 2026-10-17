@@ -5,10 +5,17 @@ import { circleHitsObstacle } from "../../shared/obstacles.js";
 import {
   TICK_RATE, ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_MAX_HP,
   RESPAWN_TICKS, SKILLS, DASH_INDEX, SPAWN_POINTS, MAX_PLAYERS, ROUND, INPUT_SCALE,
+  SKIN_COUNT, NAME_MAX_LENGTH,
 } from "../../shared/constants.js";
 
 /** 不能動的時候（死亡、倒數、結算）用的空輸入 */
 const IDLE_INPUT = { moveX: 0, moveY: 0, skill: 0, aimX: 0, aimY: 0 };
+
+/** 去掉控制字元和前後空白，限制長度（用 Array.from 才不會把 emoji 切一半） */
+function cleanName(raw) {
+  const text = String(raw ?? "").replace(/[\p{Cc}\p{Cf}]/gu, "").trim();
+  return Array.from(text).slice(0, NAME_MAX_LENGTH).join("");
+}
 
 /**
  * 對戰房間：伺服器說了算。
@@ -55,11 +62,15 @@ export class ArenaRoom extends Room {
   onJoin(client, options) {
     const index = this.joinCount++;
     const spawn = SPAWN_POINTS[index % SPAWN_POINTS.length];
-    const name = String(options?.name || `P${index + 1}`).slice(0, 12);
+    // 名稱、角色由玩家在進場畫面選，伺服器再檢查一次（不能相信客戶端送來的值）
+    const name = cleanName(options?.name) || `P${index + 1}`;
+    const skin = Number.isInteger(options?.skin) && options.skin >= 0 && options.skin < SKIN_COUNT
+      ? options.skin
+      : index % SKIN_COUNT;
 
     this.state.players.set(client.sessionId, new Player({
       name,
-      skin: index % SPAWN_POINTS.length,
+      skin,
       x: spawn.x, y: spawn.y, vx: 0, vy: 0,
       faceX: spawn.x < ARENA_WIDTH / 2 ? INPUT_SCALE : -INPUT_SCALE, faceY: 0, dashTicks: 0, dashCd: 0,
       hp: PLAYER_MAX_HP, alive: true, kills: 0, deaths: 0,

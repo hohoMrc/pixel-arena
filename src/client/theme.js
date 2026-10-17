@@ -20,7 +20,7 @@ export const theme = {
     pillar:      { path: "assets/pillar.png",      size: [25, 61], color: 0x6b7590 },
     fireball:    { path: "assets/fireball.png",    size: [17, 11], color: 0xff8a3d },
     bigfireball: { path: "assets/bigfireball.png", size: [39, 23], color: 0xff4d2e },
-    // 角色外觀，依加入順序分配（skin 0~3）。32×40，面朝右，腳貼齊圖片底部
+    // 角色外觀（skin 0~3），玩家在進場畫面選。32×40，面朝右，腳貼齊圖片底部
     player0:     { path: "assets/player0.png",     size: [32, 40], color: 0x4fa3ff },
     player1:     { path: "assets/player1.png",     size: [32, 40], color: 0xff5c7a },
     player2:     { path: "assets/player2.png",     size: [32, 40], color: 0x5fd17a },
@@ -75,6 +75,8 @@ export const theme = {
 
   // 技能按鈕上的圖示（文字或 emoji；之後也可以改成圖片）
   skillIcons: ["🔥", "💥", "💨"],
+  /** 進場畫面的角色名稱，順序 = skin 編號（數量要和 shared/constants.js 的 SKIN_COUNT 一致） */
+  skins: ["藍法師", "紅劍士", "綠巫師", "金武僧"],
   /** 拖曳瞄準時瞄準線的顏色，順序同 SKILLS */
   aimGuideColors: [0xff8a3d, 0xff4d2e],
 };

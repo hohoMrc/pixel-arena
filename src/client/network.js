@@ -16,11 +16,11 @@ const client = new ColyseusSDK(SERVER_URL);
 /**
  * 網址有 ?room=xxx 就加入該房間，否則自動配對（有空房就加入，沒有就建立）。
  * 加入後把房號寫回網址，直接複製網址就能邀請朋友。
+ * @param {{ name: string, skin: number }} options 進場畫面選的名稱和角色
  */
-export async function joinArena() {
+export async function joinArena(options) {
   const params = new URLSearchParams(location.search);
   const roomId = params.get("room");
-  const options = { name: params.get("name") || undefined };
 
   let room;
   try {

@@ -14,9 +14,18 @@
         <span id="status">載入中…</span>
         <div id="score"></div>
         <button id="mute" aria-label="靜音">🔊</button>
-        <button id="share">邀請</button>
+        <button id="share" hidden>邀請</button>
       </header>
       <main id="game">
+        <!-- 進場畫面：輸入名稱、選角色（lobby.js） -->
+        <form id="lobby" hidden>
+          <div class="title">PIXEL ARENA</div>
+          <label class="field">名稱
+            <input id="lobby-name" maxlength="12" autocomplete="off" enterkeyhint="go" placeholder="輸入你的名稱" />
+          </label>
+          <div id="lobby-skins"></div>
+          <button id="lobby-join" type="submit">進入對戰</button>
+        </form>
         <!-- 等待、倒數、勝負結果，疊在遊戲畫面上 -->
         <div id="overlay" hidden></div>
       </main>

@@ -69,6 +69,63 @@ html, body {
   display: flex;
 }
 
+/* 進場畫面：名稱 + 選角色 */
+#lobby {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 16px;
+  background: var(--bg);
+}
+#lobby[hidden] { display: none; }
+#lobby .title { font-size: 28px; font-weight: bold; color: var(--accent); letter-spacing: 2px; }
+#lobby .field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); width: min(100%, 300px); }
+#lobby input {
+  font: inherit;
+  font-size: 16px; /* 小於 16px 時 iPhone 會自動放大畫面 */
+  color: var(--text);
+  background: var(--panel);
+  border: 2px solid var(--panel-edge);
+  border-radius: 6px;
+  padding: 10px 12px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+#lobby input:focus { outline: none; border-color: var(--accent); }
+#lobby-skins { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; width: min(100%, 340px); }
+.skin-card {
+  font: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--panel);
+  border: 2px solid var(--panel-edge);
+  border-radius: 8px;
+  padding: 8px 0 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.skin-card img { width: 48px; height: 60px; image-rendering: pixelated; }
+.skin-card.selected { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, var(--panel)); }
+#lobby-join {
+  font: inherit;
+  font-size: 18px;
+  font-weight: bold;
+  color: #14151d;
+  background: var(--accent);
+  border: 0;
+  border-radius: 8px;
+  padding: 12px 40px;
+  box-shadow: 0 4px 0 #a88f2a;
+}
+#lobby-join:active { transform: translateY(3px); box-shadow: 0 1px 0 #a88f2a; }
+
 /* 遊戲畫面中間的提示（等待、倒數、勝負） */
 #overlay {
   position: absolute;
