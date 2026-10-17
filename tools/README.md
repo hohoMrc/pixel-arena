@@ -49,6 +49,7 @@ codex exec --skip-git-repo-check [-i 參考圖.png] -- '提示詞' </dev/null
 | 地板（鋪滿） | `tools/.venv/bin/python tools/pixelize.py 原圖.png public/assets/floor.png --grid 64 --opaque` |
 | 技能圖示 | `tools/.venv/bin/python tools/pixelize.py 原圖.png public/assets/xxx.png --grid 40` |
 | 走路動畫 | `tools/.venv/bin/python tools/slice_walk.py 原圖.png public/assets/player4_walk.png --height 36` |
+| 正面 / 背面走路 | `tools/.venv/bin/python tools/slice_walk.py 原圖.png public/assets/player4_front.png --height 36`（背面輸出成 `player4_back.png`） |
 | 特效動畫 | `tools/.venv/bin/python tools/slice_walk.py 原圖.png public/assets/explosion.png --frames 5 --height 30 --fw 40 --fh 40 --align center` |
 
 - `--grid`：原圖橫向有幾格，可以目測（圖寬 ÷ 一格寬）。不確定就先輸出，看 `_x8.png` 預覽圖再調整
@@ -83,6 +84,27 @@ between frames. Frame order: contact (right foot forward), passing (feet togethe
 contact (left foot forward), passing. Strict pixel art, perfectly square solid-color blocks, no
 anti-aliasing, no gradients. Transparent background. Wide landscape image.
 ```
+
+**正面 / 背面走路**（`-i` 附該角色的原始大圖；背面把 FRONT 那段換成括號裡的描述）：
+```
+Generate one image: a horizontal sprite sheet of a 4-frame WALK CYCLE animation for the EXACT same
+character as the attached image, but seen FROM THE FRONT: the character faces the viewer and walks
+toward the camera (moving DOWN the screen in a top-down RPG), face and front of the outfit visible,
+symmetric front view.
+(背面：seen STRICTLY FROM BEHIND (rear view): back of the head / helmet visible, NO face, NO visor,
+walks away from the camera, moving UP the screen in a top-down RPG.)
+Keep the identical character design, colors, outfit, weapon, proportions, pixel block size and dark
+outline (modification target: same character, only the viewing angle and leg/arm poses change).
+The 4 frames are side by side in a single row, evenly spaced, all the same size and same scale as the
+original, feet on the same baseline, with clear empty transparent gaps between frames, nothing
+overlapping. Frame order: 1 left foot forward, 2 standing neutral with feet together, 3 right foot
+forward, 4 standing neutral with feet together. Strict pixel art, perfectly square solid-color blocks,
+no anti-aliasing, no gradients. Transparent background. Wide landscape image.
+```
+- 第 2 格是站立圖（遊戲裡 `IDLE_FRAME = 1`）
+- 戴頭盔的角色容易被畫成正面，背面提示要特別寫 NO visor、NO face
+- 同時跑好幾個 `codex exec` 時，log 最後不一定會印出圖檔路徑；用 log 裡的 `session id` 到
+  `~/.codex/generated_images/<session id>/` 找，圖片可能在程式結束後幾秒才寫入
 
 **地板**：
 ```

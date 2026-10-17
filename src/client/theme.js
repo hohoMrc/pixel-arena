@@ -32,6 +32,16 @@ export const theme = {
     player1_walk: { path: "assets/player1_walk.png", sheet: [32, 40] },
     player2_walk: { path: "assets/player2_walk.png", sheet: [32, 40] },
     player3_walk: { path: "assets/player3_walk.png", sheet: [32, 40] },
+    // 正面（往下走）、背面（往上走）：4 格走路動畫（左腳、站立、右腳、站立），站著時用 IDLE_FRAME 那格。
+    // 沒有這些圖時，往上下走也用側面圖
+    player0_front: { path: "assets/player0_front.png", sheet: [32, 40] },
+    player1_front: { path: "assets/player1_front.png", sheet: [32, 40] },
+    player2_front: { path: "assets/player2_front.png", sheet: [32, 40] },
+    player3_front: { path: "assets/player3_front.png", sheet: [32, 40] },
+    player0_back:  { path: "assets/player0_back.png",  sheet: [32, 40] },
+    player1_back:  { path: "assets/player1_back.png",  sheet: [32, 40] },
+    player2_back:  { path: "assets/player2_back.png",  sheet: [32, 40] },
+    player3_back:  { path: "assets/player3_back.png",  sheet: [32, 40] },
     // 技能命中特效：5 格（閃光 → 火球 → 爆炸 → 碎煙 → 淡出），每格 40×40
     explosion:    { path: "assets/explosion.png",    sheet: [40, 40] },
   },
@@ -92,3 +102,7 @@ export const theme = {
 
 export const playerTextureKey = (skin) => `player${skin}`;
 export const walkTextureKey = (skin) => `player${skin}_walk`;
+/** 正面 / 背面的走路圖（dir = "front" | "back"） */
+export const facingTextureKey = (skin, dir) => `player${skin}_${dir}`;
+/** 正面 / 背面圖裡「站著」用哪一格（0 開始） */
+export const IDLE_FRAME = 1;

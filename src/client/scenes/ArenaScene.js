@@ -1,11 +1,20 @@
 import * as Phaser from "phaser";
 import { Callbacks } from "@colyseus/sdk";
 import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_MAX_HP, SKILLS, DASH_INDEX, TICK_RATE, INPUT_SCALE, ENERGY, PILLAR } from "../../shared/constants.js";
-import { theme, playerTextureKey, walkTextureKey } from "../theme.js";
+import { theme, playerTextureKey, walkTextureKey, facingTextureKey, IDLE_FRAME } from "../theme.js";
 import { createMissingTextures } from "../placeholders.js";
 import { OBSTACLE_RECTS, circleHitsObstacle } from "../../shared/obstacles.js";
 import { RoundOverlay } from "../roundOverlay.js";
 import { blastTarget, meteorTargets } from "../../shared/blast.js";
+
+/**
+ * 角色朝哪個方向：上下走得比左右多就用正面 / 背面圖，其他（含斜走）用側面圖
+ * @returns {"side" | "front" | "back"}
+ */
+function facingOf(faceX, faceY) {
+  if (Math.abs(faceY) > Math.abs(faceX)) return faceY > 0 ? "front" : "back";
+  return "side";
+}
 
 /** 停下來多久後才切回站立圖（ms），避免插值的小停頓讓動畫一直閃 */
 const WALK_HOLD_MS = 120;
@@ -224,10 +233,12 @@ export class ArenaScene extends Phaser.Scene {
       const headY = feetY - view.sprite.height;
       const jitter = now < view.jitterUntil ? Math.round((Math.random() * 2 - 1) * HIT_FEEDBACK.jitterPx) : 0;
       view.sprite.setPosition(Math.round(x) + jitter, feetY);
-      view.sprite.setFlipX(player.faceX < 0);
+      // 面向：自己讀預測值（轉身不用等伺服器），其他人讀伺服器狀態
+      const faceX = isSelf ? this.predict.value(player, "faceX") : player.faceX;
+      const faceY = isSelf ? this.predict.value(player, "faceY") : player.faceY;
       view.sprite.setDepth(feetY); // 依腳底位置排前後：越下面的越前面（和柱子同一個基準）
       view.sprite.setAlpha(player.alive ? 1 : 0.25);
-      this.updateWalk(view, player, x, y, now);
+      this.updateWalk(view, player, x, y, now, faceX, faceY);
       this.updateFlash(view, now);
       this.updateDash(view, player, isSelf, now);
       view.label.setPosition(Math.round(x), headY - 4).setDepth(feetY + 0.5);
@@ -567,35 +578,46 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /** 每個角色外觀一組走路動畫（key 跟圖片同名） */
+  /** 每個角色的走路動畫：側面、正面、背面（有圖才建立） */
   createWalkAnimations() {
-    for (let skin = 0; ; skin++) {
-      const key = walkTextureKey(skin);
-      if (!theme.assets[key]) break;
-      if (!this.textures.exists(key) || this.anims.exists(key)) continue;
-      this.anims.create({
-        key,
-        frames: this.anims.generateFrameNumbers(key),
-        frameRate: theme.walkFrameRate,
-        repeat: -1,
-      });
+    for (let skin = 0; theme.assets[playerTextureKey(skin)]; skin++) {
+      for (const key of [walkTextureKey(skin), facingTextureKey(skin, "front"), facingTextureKey(skin, "back")]) {
+        if (!this.textures.exists(key) || this.anims.exists(key)) continue;
+        this.anims.create({ key, frames: this.anims.generateFrameNumbers(key), frameRate: theme.walkFrameRate, repeat: -1 });
+      }
     }
   }
 
+
   /** 看畫面上的位置有沒有在動，決定播走路動畫還是顯示站立圖 */
-  updateWalk(view, player, x, y, now) {
+  /** 依面向和有沒有在走，切換側面 / 正面 / 背面的走路動畫或站立圖 */
+  updateWalk(view, player, x, y, now, faceX, faceY) {
     const moved = Math.hypot(x - view.lastX, y - view.lastY) > 0.05;
     view.lastX = x;
     view.lastY = y;
     if (moved && player.alive) view.walkUntil = now + WALK_HOLD_MS;
+    const walking = now < view.walkUntil;
 
-    const walkKey = walkTextureKey(player.skin);
-    if (now < view.walkUntil && this.anims.exists(walkKey)) {
-      view.sprite.play(walkKey, true); // true = 已經在播就不重來
-    } else if (view.sprite.anims.isPlaying) {
+    let dir = facingOf(faceX, faceY);
+    // 沒有正面 / 背面圖的角色，上下走也用側面
+    if (dir !== "side" && !this.textures.exists(facingTextureKey(player.skin, dir))) dir = "side";
+    view.sprite.setFlipX(dir === "side" && faceX < 0);
+
+    // 方向或走 / 停改變時才換圖，避免每幀重設
+    const pose = `${dir}:${walking}`;
+    if (pose === view.pose) return;
+    view.pose = pose;
+
+    const animKey = dir === "side" ? walkTextureKey(player.skin) : facingTextureKey(player.skin, dir);
+    if (walking && this.anims.exists(animKey)) {
+      view.sprite.play(animKey);
+    } else {
       view.sprite.stop();
-      view.sprite.setTexture(playerTextureKey(player.skin));
+      if (dir === "side") view.sprite.setTexture(playerTextureKey(player.skin));
+      else view.sprite.setTexture(animKey, IDLE_FRAME);
     }
   }
+
 
   /** 血條畫在頭頂上方 */
   /** 頭上的血條；energyRatio 有值時（自己）在下面多畫一條藍色能量條 */
