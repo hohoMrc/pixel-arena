@@ -8,6 +8,7 @@
   --skill-0: #ff8a3d;
   --skill-1: #ff4d2e;
   --skill-2: #4fc3f7;
+  --skill-3: #ffd23f;
   font-family: "Courier New", ui-monospace, monospace;
 }
 
@@ -212,7 +213,11 @@ html, body {
 }
 #joystick.active #knob { transition: none; background: #5b6188; }
 
-/* 右：技能按鈕（依 SKILLS 自動產生），第一個大顆、其餘小顆 */
+/*
+ * 右：技能按鈕（依 SKILLS 自動產生），2×2 排列：
+ *   [大招] [衝刺]
+ *   [爆炎] [火球（大顆）]
+ */
 #skills {
   display: grid;
   grid-template-columns: auto auto;
@@ -239,9 +244,10 @@ html, body {
   overflow: hidden;
   touch-action: none;
 }
-.skill-0 { width: 88px; height: 88px; grid-column: 2; grid-row: 1 / span 2; }
+.skill-0 { width: 88px; height: 88px; grid-column: 2; grid-row: 2; }
 .skill-1 { --color: var(--skill-1); grid-column: 1; grid-row: 2; }
-.skill-2 { --color: var(--skill-2); grid-column: 1; grid-row: 1; }
+.skill-2 { --color: var(--skill-2); grid-column: 2; grid-row: 1; justify-self: center; }
+.skill-3 { --color: var(--skill-3); grid-column: 1; grid-row: 1; }
 .skill.pressed { transform: translateY(3px); box-shadow: 0 1px 0 #111219; }
 /* 拖曳瞄準中：外圈亮起來 */
 .skill.aiming { border-color: #fff; }
@@ -272,3 +278,24 @@ html, body {
 }
 .skill-0 .cd-text { font-size: 28px; }
 .skill.cooling .icon, .skill.cooling .label { opacity: 0.35; }
+/* 能量消耗標籤 */
+.skill .cost {
+  position: absolute;
+  top: 6px;
+  right: 50%;
+  transform: translateX(50%);
+  z-index: 1;
+  font-size: 9px;
+  color: #9fe0ff;
+  pointer-events: none;
+}
+.skill-0 .cost { top: 9px; }
+/* 能量不夠：整顆變暗、標籤變紅 */
+.skill.no-energy { filter: saturate(0.3) brightness(0.7); }
+.skill.no-energy .cost { color: #ff8a8a; }
+/* 大招集滿：外圈發光 */
+.skill.ready { border-color: #fff3b0; animation: ult-ready 0.9s ease-in-out infinite alternate; }
+@keyframes ult-ready {
+  from { box-shadow: 0 4px 0 #111219, 0 0 4px 1px var(--skill-3); }
+  to   { box-shadow: 0 4px 0 #111219, 0 0 16px 5px var(--skill-3); }
+}

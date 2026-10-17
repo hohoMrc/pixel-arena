@@ -35,3 +35,21 @@ export function aimToward(x, y, targetX, targetY, skill) {
     y: Math.round((dy / dist) * ratio * INPUT_SCALE),
   };
 }
+
+/**
+ * 流星雨每顆隕石的落點和延遲：中間 1 顆先落下，外圈依序繞一圈。
+ * @returns {{ x: number, y: number, fuseTicks: number }[]}
+ */
+export function meteorTargets(x, y, aimX, aimY, skill) {
+  const center = blastTarget(x, y, aimX, aimY, skill);
+  const points = [{ ...center, fuseTicks: skill.fuseTicks }];
+  for (let i = 0; i < skill.ringCount; i++) {
+    const angle = (i / skill.ringCount) * Math.PI * 2;
+    points.push({
+      x: Math.max(0, Math.min(ARENA_WIDTH, center.x + Math.cos(angle) * skill.ringRadius)),
+      y: Math.max(0, Math.min(ARENA_HEIGHT, center.y + Math.sin(angle) * skill.ringRadius)),
+      fuseTicks: skill.fuseTicks + (i + 1) * skill.staggerTicks,
+    });
+  }
+  return points;
+}

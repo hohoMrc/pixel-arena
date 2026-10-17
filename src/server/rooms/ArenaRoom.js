@@ -3,11 +3,11 @@ import { ArenaState, Player, PlayerInput, Projectile, Blast } from "./schema.js"
 import { stepEntity } from "../../shared/movement.js";
 import { circleHitsObstacle } from "../../shared/obstacles.js";
 import { BotBrain } from "../bot.js";
-import { blastTarget, aimToward } from "../../shared/blast.js";
+import { blastTarget, aimToward, meteorTargets } from "../../shared/blast.js";
 import {
   TICK_RATE, ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_MAX_HP,
   RESPAWN_TICKS, SKILLS, DASH_INDEX, SPAWN_POINTS, MAX_PLAYERS, ROUND, INPUT_SCALE,
-  SKIN_COUNT, NAME_MAX_LENGTH,
+  SKIN_COUNT, NAME_MAX_LENGTH, ENERGY, RAGE,
 } from "../../shared/constants.js";
 
 /** 不能動的時候（死亡、倒數、結算）用的空輸入 */
@@ -85,9 +85,9 @@ export class ArenaRoom extends Room {
       skin,
       x: spawn.x, y: spawn.y, vx: 0, vy: 0,
       faceX: spawn.x < ARENA_WIDTH / 2 ? INPUT_SCALE : -INPUT_SCALE, faceY: 0, dashTicks: 0, dashCd: 0,
-      hp: PLAYER_MAX_HP, alive: true, kills: 0, deaths: 0,
+      hp: PLAYER_MAX_HP, alive: true, kills: 0, deaths: 0, energy: ENERGY.max, rage: 0,
     }));
-    this.meta.set(client.sessionId, { spawn, lastCastTick: SKILLS.map(() => -Infinity), respawnTick: 0 });
+    this.meta.set(client.sessionId, { spawn, lastCastTick: SKILLS.map(() => -Infinity), respawnTick: 0, energy: ENERGY.max });
     console.log(`[${this.roomId}] ${name} 加入`);
     if (replacedBot && this.state.phase !== "waiting") this.startCountdown();
     else this.checkPlayerCount();
@@ -109,9 +109,9 @@ export class ArenaRoom extends Room {
       skin,
       x: spawn.x, y: spawn.y, vx: 0, vy: 0,
       faceX: spawn.x < ARENA_WIDTH / 2 ? INPUT_SCALE : -INPUT_SCALE, faceY: 0, dashTicks: 0, dashCd: 0,
-      hp: PLAYER_MAX_HP, alive: true, kills: 0, deaths: 0,
+      hp: PLAYER_MAX_HP, alive: true, kills: 0, deaths: 0, energy: ENERGY.max, rage: 0,
     }));
-    this.meta.set(id, { spawn, lastCastTick: SKILLS.map(() => -Infinity), respawnTick: 0, brain: new BotBrain() });
+    this.meta.set(id, { spawn, lastCastTick: SKILLS.map(() => -Infinity), respawnTick: 0, energy: ENERGY.max, brain: new BotBrain() });
     console.log(`[${this.roomId}] 加入電腦對手 ${id}`);
     this.checkPlayerCount();
   }
@@ -180,16 +180,17 @@ export class ArenaRoom extends Room {
     console.log(`[${this.roomId}] ${this.state.players.get(winnerId)?.name} 獲勝`);
   }
 
-  /** 所有人回出生點、補滿血、分數和冷卻歸零 */
+  /** 所有人回出生點、補滿血和能量，分數、怒氣、冷卻歸零 */
   resetRound() {
     for (const [id, player] of this.state.players) {
       const meta = this.meta.get(id);
       Object.assign(player, {
         x: meta.spawn.x, y: meta.spawn.y, vx: 0, vy: 0,
         faceX: meta.spawn.x < ARENA_WIDTH / 2 ? INPUT_SCALE : -INPUT_SCALE, faceY: 0, dashTicks: 0, dashCd: 0,
-        hp: PLAYER_MAX_HP, alive: true, kills: 0, deaths: 0,
+        hp: PLAYER_MAX_HP, alive: true, kills: 0, deaths: 0, energy: ENERGY.max, rage: 0,
       });
       meta.lastCastTick = SKILLS.map(() => -Infinity);
+      meta.energy = ENERGY.max;
     }
     this.clearProjectiles();
   }
@@ -249,12 +250,16 @@ export class ArenaRoom extends Room {
     this.updateProjectiles(ctx.dt);
     if (this.state.phase !== "ended") this.updateBlasts();
 
-    // 3. 復活
+    // 3. 復活（能量補滿，怒氣保留）、回復能量
+    const regen = ENERGY.regenPerSec / TICK_RATE;
     for (const [id, player] of this.state.players) {
       const meta = this.meta.get(id);
       if (!player.alive && this.tick >= meta.respawnTick) {
         Object.assign(player, { x: meta.spawn.x, y: meta.spawn.y, vx: 0, vy: 0, hp: PLAYER_MAX_HP, alive: true, dashTicks: 0, dashCd: 0 });
+        meta.energy = ENERGY.max;
       }
+      if (player.alive) meta.energy = Math.min(ENERGY.max, meta.energy + regen);
+      player.energy = Math.floor(meta.energy); // 只有整數變了才會同步出去
     }
   }
 
@@ -266,18 +271,29 @@ export class ArenaRoom extends Room {
       projectiles: this.state.projectiles,
       blasts: this.state.blasts,
       tick: this.tick,
-      canCast: (i) => this.tick - meta.lastCastTick[i] >= SKILLS[i].cooldownTicks,
+      canCast: (i) => this.canCast(meta, player, i),
     });
+  }
+
+  /** 冷卻好了，而且能量（或大招的怒氣）夠 */
+  canCast(meta, player, skillIndex) {
+    const skill = SKILLS[skillIndex];
+    if (this.tick - meta.lastCastTick[skillIndex] < skill.cooldownTicks) return false;
+    if (skill.ultimate) return player.rage >= RAGE.max;
+    return meta.energy >= (skill.energyCost ?? 0);
   }
 
   tryCastSkill(id, player, skillIndex, input) {
     const skill = SKILLS[skillIndex];
     if (!skill || skill.type === "dash") return; // 衝刺在 stepEntity 處理
     const meta = this.meta.get(id);
-    if (this.tick - meta.lastCastTick[skillIndex] < skill.cooldownTicks) return;
+    if (!this.canCast(meta, player, skillIndex)) return;
     meta.lastCastTick[skillIndex] = this.tick;
+    // 付出代價：大招清空怒氣，其他技能扣能量
+    if (skill.ultimate) player.rage = 0;
+    else meta.energy -= skill.energyCost ?? 0;
 
-    if (skill.type === "blast") {
+    if (skill.type === "blast" || skill.type === "meteor") {
       this.castBlast(id, player, skillIndex, skill, input);
       return;
     }
@@ -296,7 +312,10 @@ export class ArenaRoom extends Room {
     this.projectileExpire.set(projectileId, this.tick + skill.lifetimeTicks);
   }
 
-  /** 指定地點爆炸：輕點 = 丟向最近的敵人（超過射程就丟到最遠），拖曳 = 丟到瞄準的位置 */
+  /**
+   * 指定地點爆炸：輕點 = 丟向最近的敵人（超過射程就丟到最遠），拖曳 = 丟到瞄準的位置。
+   * 流星雨（meteor）同樣瞄準方式，只是在落點附近依序落下好幾顆。
+   */
   castBlast(id, player, skillIndex, skill, input) {
     let aim = { x: input.aimX, y: input.aimY };
     if (aim.x === 0 && aim.y === 0) {
@@ -305,10 +324,14 @@ export class ArenaRoom extends Room {
         ? aimToward(player.x, player.y, target.x, target.y, skill)
         : { x: Math.round(player.faceX * 0.6), y: Math.round(player.faceY * 0.6) }; // 沒有敵人就丟到前方
     }
-    const { x, y } = blastTarget(player.x, player.y, aim.x, aim.y, skill);
-    const blastId = String(this.nextProjectileId++);
-    this.state.blasts.set(blastId, new Blast({ owner: id, skill: skillIndex, x, y }));
-    this.blastDetonate.set(blastId, this.tick + skill.fuseTicks);
+    const points = skill.type === "meteor"
+      ? meteorTargets(player.x, player.y, aim.x, aim.y, skill)
+      : [{ ...blastTarget(player.x, player.y, aim.x, aim.y, skill), fuseTicks: skill.fuseTicks }];
+    for (const { x, y, fuseTicks } of points) {
+      const blastId = String(this.nextProjectileId++);
+      this.state.blasts.set(blastId, new Blast({ owner: id, skill: skillIndex, x, y, fuse: fuseTicks }));
+      this.blastDetonate.set(blastId, this.tick + fuseTicks);
+    }
   }
 
   /** 預告時間到就爆炸：範圍內的敵人全部受傷（衝刺中無敵一樣有效） */
@@ -397,7 +420,12 @@ export class ArenaRoom extends Room {
   }
 
   applyDamage(targetId, target, attackerId, damage) {
-    target.hp = Math.max(0, target.hp - damage);
+    const dealt = Math.min(target.hp, damage);
+    target.hp -= dealt;
+    // 怒氣：被打的人和打人的人都會累積
+    target.rage = Math.min(RAGE.max, target.rage + dealt * RAGE.perDamageTaken);
+    const source = this.state.players.get(attackerId);
+    if (source) source.rage = Math.min(RAGE.max, source.rage + dealt * RAGE.perDamageDealt);
     if (target.hp > 0) return;
 
     target.alive = false;

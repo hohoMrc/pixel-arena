@@ -1,4 +1,4 @@
-import { SKILLS, TICK_RATE, DASH_INDEX, INPUT_SCALE } from "../shared/constants.js";
+import { SKILLS, TICK_RATE, DASH_INDEX, INPUT_SCALE, RAGE } from "../shared/constants.js";
 import { theme } from "./theme.js";
 
 /** 搖桿推超過半徑的這個比例才算有方向 */
@@ -22,7 +22,7 @@ const toInputDir = (dx, dy, power = 1) => {
 const KEYS = {
   up: ["w", "arrowup"], down: ["s", "arrowdown"],
   left: ["a", "arrowleft"], right: ["d", "arrowright"],
-  skills: [["j", " "], ["k"], ["l", "shift"]],
+  skills: [["j", " "], ["k"], ["l", "shift"], ["r", "i"]],
 };
 
 /**
@@ -44,6 +44,9 @@ export class Controls {
   /** 放開後等著送出的技能：{ skill, aimX, aimY, at } */
   pendingCast = null;
   lastCastAt = SKILLS.map(() => -Infinity); // 本地估算的冷卻起點（ms）
+  /** 自己目前的能量、怒氣（ArenaScene 每幀從伺服器狀態更新），用來判斷技能能不能放 */
+  energy = 0;
+  rage = 0;
 
   constructor({ joystick, knob, skillsEl }) {
     this.setupJoystick(joystick, knob);
@@ -75,7 +78,7 @@ export class Controls {
     // 觸控：放開的技能。冷卻還沒好就再等一下，超過緩衝時間才放棄
     const now = performance.now();
     const pending = this.pendingCast;
-    if (pending && this.cooldownReady(pending.skill, now)) {
+    if (pending && this.ready(pending.skill, now)) {
       this.pendingCast = null;
       this.markCast(pending.skill);
       return { ...move, skill: pending.skill + 1, aimX: pending.aimX, aimY: pending.aimY };
@@ -93,20 +96,41 @@ export class Controls {
     return now - this.lastCastAt[i] >= (SKILLS[i].cooldownTicks / TICK_RATE) * 1000;
   }
 
+  /** 能量（大招看怒氣）夠不夠 */
+  hasResource(i) {
+    const skill = SKILLS[i];
+    return skill.ultimate ? this.rage >= RAGE.max : this.energy >= (skill.energyCost ?? 0);
+  }
+
+  ready(i, now) {
+    return this.cooldownReady(i, now) && this.hasResource(i);
+  }
+
   /**
-   * 冷卻顯示：轉圈遮罩 + 剩餘秒數。
-   * 攻擊技能用本地估算（按下的時間）；衝刺用預測狀態裡的 dashCd，是精確值。
+   * 技能鍵狀態：冷卻（轉圈遮罩 + 剩餘秒數）、能量不夠（變暗）、大招（怒氣累積進度）。
+   * 攻擊技能的冷卻用本地估算（按下的時間）；衝刺用預測狀態裡的 dashCd，是精確值。
    * @param {number} now performance.now()
-   * @param {number} dashCdTicks 自己的衝刺冷卻剩幾個 tick
+   * @param {{ dashCd: number, energy: number, rage: number }} stats 自己的狀態
    */
-  updateCooldowns(now, dashCdTicks = 0) {
+  updateCooldowns(now, { dashCd = 0, energy = 0, rage = 0 } = {}) {
+    this.energy = energy;
+    this.rage = rage;
     SKILLS.forEach((s, i) => {
+      const btn = this.skillButtons[i];
+
+      // 大招：遮罩蓋住「還沒集滿」的部分，集滿時發光
+      if (s.ultimate) {
+        btn.style.setProperty("--cd", 1 - Math.min(1, rage / RAGE.max));
+        btn.classList.toggle("ready", rage >= RAGE.max);
+        return;
+      }
+
       const totalMs = (s.cooldownTicks / TICK_RATE) * 1000;
       const leftMs = i === DASH_INDEX
-        ? (dashCdTicks / TICK_RATE) * 1000
+        ? (dashCd / TICK_RATE) * 1000
         : Math.max(0, totalMs - (now - this.lastCastAt[i]));
-      const btn = this.skillButtons[i];
       btn.style.setProperty("--cd", leftMs / totalMs);
+      btn.classList.toggle("no-energy", energy < (s.energyCost ?? 0));
 
       // 秒數：1 秒以上顯示整數（無條件進位），最後 1 秒顯示一位小數
       const text = leftMs <= 0 || totalMs < SHOW_SECONDS_MIN_MS ? ""
@@ -126,9 +150,10 @@ export class Controls {
     this.pendingCast = null;
   }
 
+  /** 本地開始冷卻計時（能量不夠時伺服器不會放，這裡也不計時） */
   markCast(i) {
     const now = performance.now();
-    if (this.cooldownReady(i, now)) this.lastCastAt[i] = now;
+    if (this.ready(i, now)) this.lastCastAt[i] = now;
   }
 
   setupJoystick(base, knob) {
@@ -172,7 +197,9 @@ export class Controls {
     return SKILLS.map((skill, i) => {
       const btn = document.createElement("button");
       btn.className = `skill skill-${i}`;
-      btn.innerHTML = `<span class="icon">${theme.skillIcons[i] ?? "★"}</span><span class="label">${skill.name}</span><span class="cd-text"></span>`;
+      // 右上角的能量消耗標籤（沒有消耗的技能不顯示）
+      const cost = skill.energyCost ? `<span class="cost">⚡${skill.energyCost}</span>` : "";
+      btn.innerHTML = `<span class="icon">${theme.skillIcons[i] ?? "★"}</span><span class="label">${skill.name}</span>${cost}<span class="cd-text"></span>`;
       btn.cdText = btn.querySelector(".cd-text");
 
       btn.addEventListener("contextmenu", (e) => e.preventDefault()); // 長按不跳選單

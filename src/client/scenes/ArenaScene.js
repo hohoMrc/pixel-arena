@@ -1,11 +1,11 @@
 import * as Phaser from "phaser";
 import { Callbacks } from "@colyseus/sdk";
-import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_MAX_HP, SKILLS, DASH_INDEX, TICK_RATE, INPUT_SCALE } from "../../shared/constants.js";
+import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_MAX_HP, SKILLS, DASH_INDEX, TICK_RATE, INPUT_SCALE, ENERGY } from "../../shared/constants.js";
 import { theme, playerTextureKey, walkTextureKey } from "../theme.js";
 import { createMissingTextures } from "../placeholders.js";
 import { OBSTACLE_RECTS, circleHitsObstacle } from "../../shared/obstacles.js";
 import { RoundOverlay } from "../roundOverlay.js";
-import { blastTarget } from "../../shared/blast.js";
+import { blastTarget, meteorTargets } from "../../shared/blast.js";
 
 /** 停下來多久後才切回站立圖（ms），避免插值的小停頓讓動畫一直閃 */
 const WALK_HOLD_MS = 120;
@@ -38,6 +38,7 @@ const BLAST_FX = {
   ringAlpha: 0.9,
   fillAlpha: 0.28,
   dropHeight: 150,   // 火球從落點上方多高開始掉
+  ultimateFlash: { ms: 180, color: [255, 160, 60] }, // 有人放大招時畫面閃一下
 };
 
 /**
@@ -132,11 +133,22 @@ export class ArenaScene extends Phaser.Scene {
     // 指定地點爆炸：預告期間火球從天上掉下來，地上的紅圈慢慢填滿
     callbacks.onAdd("blasts", (b, id) => {
       const skill = SKILLS[b.skill];
+      // 流星雨一次會新增好幾顆，音效和畫面閃光只做一次
+      const now = performance.now();
+      const firstOfVolley = now - (this.lastBlastSfxAt?.[b.skill] ?? 0) > 100;
+      if (firstOfVolley) {
+        (this.lastBlastSfxAt ??= {})[b.skill] = now;
+        this.playSfx(theme.skillSounds[b.skill]?.cast, b.owner === this.room.sessionId ? 1 : theme.othersVolume);
+        if (skill.ultimate) {
+          const { ms, color } = BLAST_FX.ultimateFlash;
+          this.cameras.main.flash(ms, ...color);
+        }
+      }
       const fireball = this.add.image(b.x, b.y - BLAST_FX.dropHeight, skill.texture)
         .setRotation(Math.PI / 2).setDepth(1002); // 圖片朝右，轉成朝下
       const shadow = this.add.image(b.x, b.y, "shadow-projectile").setDepth(SHADOW.depth).setAlpha(0);
-      this.blastViews.set(id, { fireball, shadow, startAt: performance.now(), fuseMs: (skill.fuseTicks / TICK_RATE) * 1000 });
-      this.playSfx(theme.skillSounds[b.skill]?.cast, b.owner === this.room.sessionId ? 1 : theme.othersVolume);
+      const fuseTicks = b.fuse || skill.fuseTicks;
+      this.blastViews.set(id, { fireball, shadow, startAt: now, fuseMs: (fuseTicks / TICK_RATE) * 1000 });
     });
     callbacks.onRemove("blasts", (_b, id) => {
       const view = this.blastViews.get(id);
@@ -170,7 +182,11 @@ export class ArenaScene extends Phaser.Scene {
     this.roundOverlay.update();
     if (phase === "countdown" && this.lastPhase !== "countdown") this.controls.resetCooldowns();
     this.lastPhase = phase;
-    this.controls.updateCooldowns(now, self ? this.predict.value(self, "dashCd") : 0);
+    this.controls.updateCooldowns(now, {
+      dashCd: self ? this.predict.value(self, "dashCd") : 0,
+      energy: self?.energy ?? 0,
+      rage: self?.rage ?? 0,
+    });
 
     this.bars.clear();
     for (const [id, player] of this.room.state.players) {
@@ -201,7 +217,7 @@ export class ArenaScene extends Phaser.Scene {
       view.label.setPosition(Math.round(x), headY - 4).setDepth(feetY + 0.5);
       view.shadow.setPosition(Math.round(x), feetY).setAlpha(player.alive ? SHADOW.player.alpha : SHADOW.player.alpha * 0.4);
 
-      if (player.alive) this.drawHpBar(x, headY, player.hp / PLAYER_MAX_HP);
+      if (player.alive) this.drawHpBar(x, headY, player.hp / PLAYER_MAX_HP, isSelf ? player.energy / ENERGY.max : null);
     }
 
     for (const [id, p] of this.room.state.projectiles) {
@@ -255,12 +271,18 @@ export class ArenaScene extends Phaser.Scene {
     const y = this.predict.value(self, "y");
     const color = theme.aimGuideColors?.[aim.skill] ?? 0xffffff;
 
-    if (skill.type === "blast") {
+    if (skill.type === "blast" || skill.type === "meteor") {
       // 和伺服器用同一個函式算落點，看到哪就炸哪
-      const target = blastTarget(x, y, aim.x * aim.power * INPUT_SCALE, aim.y * aim.power * INPUT_SCALE, skill);
+      const aimX = aim.x * aim.power * INPUT_SCALE;
+      const aimY = aim.y * aim.power * INPUT_SCALE;
+      const points = skill.type === "meteor"
+        ? meteorTargets(x, y, aimX, aimY, skill)
+        : [blastTarget(x, y, aimX, aimY, skill)];
       this.aimGuide.lineStyle(1, color, 0.35).strokeCircle(x, y, skill.range);
-      this.aimGuide.lineStyle(1, color, AIM_GUIDE.alpha).strokeCircle(target.x, target.y, skill.radius);
-      this.aimGuide.fillStyle(color, 0.2).fillCircle(target.x, target.y, skill.radius);
+      for (const p of points) {
+        this.aimGuide.lineStyle(1, color, AIM_GUIDE.alpha).strokeCircle(p.x, p.y, skill.radius);
+        this.aimGuide.fillStyle(color, 0.15).fillCircle(p.x, p.y, skill.radius);
+      }
       return;
     }
 
@@ -449,12 +471,17 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /** 血條畫在頭頂上方 */
-  drawHpBar(x, headY, ratio) {
+  /** 頭上的血條；energyRatio 有值時（自己）在下面多畫一條藍色能量條 */
+  drawHpBar(x, headY, ratio, energyRatio = null) {
     const w = 20;
     const left = Math.round(x - w / 2);
     const top = headY - 2;
-    this.bars.fillStyle(0x000000, 0.6).fillRect(left - 1, top - 1, w + 2, 4);
+    const h = energyRatio === null ? 4 : 6;
+    this.bars.fillStyle(0x000000, 0.6).fillRect(left - 1, top - 1, w + 2, h);
     this.bars.fillStyle(ratio > 0.5 ? 0x5fd17a : ratio > 0.25 ? 0xffd23f : 0xff5c5c);
     this.bars.fillRect(left, top, Math.ceil(w * ratio), 2);
+    if (energyRatio !== null) {
+      this.bars.fillStyle(0x4fc3f7).fillRect(left, top + 3, Math.ceil(w * energyRatio), 1);
+    }
   }
 }

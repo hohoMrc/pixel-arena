@@ -21,6 +21,7 @@ export const BOT_CONFIG = {
 
 const FIREBALL_INDEX = SKILLS.findIndex((s) => s.texture === "fireball");
 const BLAST_INDEX = SKILLS.findIndex((s) => s.type === "blast");
+const ULTIMATE_INDEX = SKILLS.findIndex((s) => s.ultimate);
 
 const rand = (min, max) => min + Math.random() * (max - min);
 const randInt = ([min, max]) => Math.floor(rand(min, max + 1));
@@ -193,6 +194,15 @@ export class BotBrain {
   chooseShot(player, target, canCast) {
     if (Math.random() > BOT_CONFIG.fireChance) return null;
     const dist = Math.hypot(target.x - player.x, target.y - player.y);
+
+    // 大招：怒氣滿了、目標在射程內就放，瞄準目標現在的位置（流星雨範圍大，不用預判太多）
+    if (ULTIMATE_INDEX >= 0 && canCast(ULTIMATE_INDEX)) {
+      const ult = SKILLS[ULTIMATE_INDEX];
+      if (dist < ult.range) {
+        const aim = aimToward(player.x, player.y, target.x, target.y, ult);
+        return { skill: ULTIMATE_INDEX + 1, aimX: aim.x, aimY: aim.y };
+      }
+    }
 
     // 爆炎：目標在射程內就丟，落點預判對手爆炸時會走到哪
     if (BLAST_INDEX >= 0 && canCast(BLAST_INDEX)) {

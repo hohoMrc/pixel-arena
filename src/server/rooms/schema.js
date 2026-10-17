@@ -24,6 +24,8 @@ export const Player = schema({
   dashTicks: t.uint8(), // 衝刺剩下幾個 tick（> 0 = 衝刺中，無敵）
   dashCd: t.uint8(),    // 衝刺冷卻剩下幾個 tick
   hp: t.uint8(),
+  energy: t.uint8(), // 能量（伺服器內部用小數累積，這裡同步整數）
+  rage: t.uint8(),   // 怒氣，集滿 RAGE.max 可以放大招
   alive: t.boolean(),
   kills: t.uint16(),
   deaths: t.uint16(),
@@ -44,6 +46,7 @@ export const Blast = schema({
   skill: t.uint8(),
   x: t.number(),
   y: t.number(),
+  fuse: t.uint8(),  // 預告幾個 tick 後爆炸（流星雨每顆不同），客戶端用來畫預告進度
 });
 
 export const ArenaState = schema({
