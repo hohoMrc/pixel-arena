@@ -1,4 +1,4 @@
-import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, SKILLS, DASH_INDEX, INPUT_SCALE, TICK_RATE } from "../shared/constants.js";
+import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, SKILLS, DASH_SLOT, ULTIMATE_SLOT, INPUT_SCALE, TICK_RATE, kitOf } from "../shared/constants.js";
 import { circleHitsObstacle } from "../shared/obstacles.js";
 import { aimToward } from "../shared/blast.js";
 
@@ -17,11 +17,13 @@ export const BOT_CONFIG = {
   dodgeLookAheadSec: 0.4,        // 火球多久內會打到才閃
   strafeSwitchTicks: [30, 75],   // 繞圈方向多久換一次
   wallMargin: 40,                // 離牆多近就往中間推
+  // 近戰角色（紅劍士）
+  meleeDistance: [0, 30],        // 近戰想貼多近
+  guardChance: 0.5,              // 看到攻擊來時舉盾的機率（盾牌冷卻好才會舉）
+  gapCloseChance: 0.04,          // 每個 tick 衝刺拉近距離的機率（目標在 gapCloseRange 內時）
+  gapCloseRange: [70, 140],
+  slashErrorDeg: 10,             // 揮砍方向誤差
 };
-
-const FIREBALL_INDEX = SKILLS.findIndex((s) => s.texture === "fireball");
-const BLAST_INDEX = SKILLS.findIndex((s) => s.type === "blast");
-const ULTIMATE_INDEX = SKILLS.findIndex((s) => s.ultimate);
 
 const rand = (min, max) => min + Math.random() * (max - min);
 const randInt = ([min, max]) => Math.floor(rand(min, max + 1));
@@ -69,26 +71,40 @@ export class BotBrain {
     const input = { moveX: 0, moveY: 0, skill: 0, aimX: 0, aimY: 0 };
     const target = this.findTarget(id, player, players);
     const threat = this.findThreat(id, player, projectiles, tick);
+    // 這隻電腦的技能組：每種技能在第幾格（沒有就是 -1）
+    const kit = kitOf(player.skin);
+    const slotOf = (type) => kit.findIndex((s) => s.type === type);
+    const guardSlot = slotOf("guard");
+    const melee = slotOf("slash") >= 0;
+    // 有盾牌、冷卻好了：朝攻擊來的方向舉盾（取代閃避）
+    const tryGuard = (fromX, fromY) => {
+      if (guardSlot < 0 || !canCast(guardSlot) || Math.random() > BOT_CONFIG.guardChance) return false;
+      const aim = toInput(fromX - player.x, fromY - player.y);
+      Object.assign(input, { skill: guardSlot + 1, aimX: aim.x || 1, aimY: aim.y });
+      return true;
+    };
 
     // 1. 閃避飛來的火球（最優先）
-    if (threat && !this.dodge) {
+    if (threat && !this.dodge && !tryGuard(threat.x, threat.y)) {
       const side = Math.random() < 0.5 ? 1 : -1;
       // 垂直於火球飛行方向
       const dir = { x: -threat.vy * side, y: threat.vx * side };
       this.dodge = { ...toInput(dir.x, dir.y), until: tick + 8 };
-      if (Math.random() < BOT_CONFIG.dashDodgeChance && player.dashCd === 0 && DASH_INDEX >= 0) {
-        input.skill = DASH_INDEX + 1; // 衝刺方向 = 這個 tick 的移動方向
+      if (Math.random() < BOT_CONFIG.dashDodgeChance && player.dashCd === 0) {
+        input.skill = DASH_SLOT + 1; // 衝刺方向 = 這個 tick 的移動方向
       }
     }
     if (this.dodge && tick >= this.dodge.until) this.dodge = null;
 
     // 站在別人的預告圈裡 → 往圈外跑
     const zone = this.findBlastZone(id, player, blasts);
-    if (zone) {
+    if (zone && !input.skill && tryGuard(zone.x, zone.y)) {
+      // 舉盾擋爆炸，不用跑
+    } else if (zone) {
       const away = toInput(player.x - zone.x || 1, player.y - zone.y);
       this.dodge = { ...away, until: tick + 6 };
-      if (Math.random() < BOT_CONFIG.dashDodgeChance && player.dashCd === 0 && DASH_INDEX >= 0) {
-        input.skill = DASH_INDEX + 1;
+      if (Math.random() < BOT_CONFIG.dashDodgeChance && player.dashCd === 0) {
+        input.skill = DASH_SLOT + 1;
       }
     }
 
@@ -96,14 +112,23 @@ export class BotBrain {
     let move;
     if (this.dodge) move = { x: this.dodge.x, y: this.dodge.y };
     else if (tick < this.unstickUntil) move = this.unstickDir;
-    else move = this.chooseMove(player, target, tick);
+    else move = this.chooseMove(player, target, tick, melee ? BOT_CONFIG.meleeDistance : BOT_CONFIG.preferredDistance);
     input.moveX = move.x;
     input.moveY = move.y;
 
     // 3. 攻擊（衝刺的這個 tick 不攻擊，一次只能送一個技能）
     if (!input.skill && target) {
-      const shot = this.chooseShot(player, target, canCast, solid);
+      const shot = this.chooseShot(player, target, canCast, solid, kit);
       if (shot) Object.assign(input, shot);
+    }
+    // 近戰：距離中等時衝過去（衝刺方向 = 移動方向，這時正往目標走）
+    if (!input.skill && target && melee && player.dashCd === 0 && Math.random() < BOT_CONFIG.gapCloseChance) {
+      const dist = Math.hypot(target.x - player.x, target.y - player.y);
+      const [min, max] = BOT_CONFIG.gapCloseRange;
+      if (dist > min && dist < max && !this.dodge) {
+        const toward = toInput(target.x - player.x, target.y - player.y);
+        Object.assign(input, { moveX: toward.x, moveY: toward.y, skill: DASH_SLOT + 1 });
+      }
     }
 
     this.checkStuck(player, input, tick);
@@ -158,7 +183,7 @@ export class BotBrain {
   }
 
   /** 保持距離 + 繞圈 + 離牆遠一點 */
-  chooseMove(player, target, tick) {
+  chooseMove(player, target, tick, [near, far]) {
     if (tick >= this.nextStrafeSwitch) {
       this.strafeDir = Math.random() < 0.5 ? 1 : -1;
       this.nextStrafeSwitch = tick + randInt(BOT_CONFIG.strafeSwitchTicks);
@@ -170,7 +195,6 @@ export class BotBrain {
       const tx = target.x - player.x;
       const ty = target.y - player.y;
       const dist = Math.hypot(tx, ty) || 1;
-      const [near, far] = BOT_CONFIG.preferredDistance;
       // 太遠就靠近、太近就後退
       const approach = dist > far ? 1 : dist < near ? -1 : 0;
       dx += (tx / dist) * approach;
@@ -190,23 +214,31 @@ export class BotBrain {
     return toInput(dx, dy);
   }
 
-  /** 冷卻好、看得到目標就開火；瞄準預判走位，再加一點誤差 */
-  chooseShot(player, target, canCast, solid) {
+  /**
+   * 冷卻好、打得到目標就出招；瞄準預判走位，再加一點誤差。
+   * 依技能組裡有什麼技能決定怎麼打（回傳的 skill 是格子編號 + 1）。
+   */
+  chooseShot(player, target, canCast, solid, kit) {
     if (Math.random() > BOT_CONFIG.fireChance) return null;
     const dist = Math.hypot(target.x - player.x, target.y - player.y);
+    const slotOf = (test) => kit.findIndex(test);
 
-    // 大招：怒氣滿了、目標在射程內就放，瞄準目標現在的位置（流星雨範圍大，不用預判太多）
-    if (ULTIMATE_INDEX >= 0 && canCast(ULTIMATE_INDEX)) {
-      const ult = SKILLS[ULTIMATE_INDEX];
-      if (dist < ult.range) {
+    // 大招：怒氣滿了、目標在範圍內就放
+    const ult = kit[ULTIMATE_SLOT];
+    if (ult && canCast(ULTIMATE_SLOT)) {
+      // 流星雨：瞄準目標現在的位置（範圍大，不用預判太多）
+      if (ult.type === "meteor" && dist < ult.range) {
         const aim = aimToward(player.x, player.y, target.x, target.y, ult);
-        return { skill: ULTIMATE_INDEX + 1, aimX: aim.x, aimY: aim.y };
+        return { skill: ULTIMATE_SLOT + 1, aimX: aim.x, aimY: aim.y };
       }
+      // 旋風斬：貼近了才轉
+      if (ult.type === "whirl" && dist < ult.radius + PLAYER_HALF - 6) return { skill: ULTIMATE_SLOT + 1, aimX: 0, aimY: 0 };
     }
 
     // 爆炎：目標在射程內就丟，落點預判對手爆炸時會走到哪
-    if (BLAST_INDEX >= 0 && canCast(BLAST_INDEX)) {
-      const blast = SKILLS[BLAST_INDEX];
+    const blastSlot = slotOf((s) => s.type === "blast");
+    if (blastSlot >= 0 && canCast(blastSlot)) {
+      const blast = kit[blastSlot];
       if (dist < blast.range + blast.radius * 0.5) {
         const fuse = (blast.fuseTicks / TICK_RATE) * BOT_CONFIG.leadFactor;
         const err = BOT_CONFIG.blastErrorPx;
@@ -216,14 +248,24 @@ export class BotBrain {
           target.y + target.vy * fuse + rand(-err, err),
           blast,
         );
-        return { skill: BLAST_INDEX + 1, aimX: aim.x, aimY: aim.y };
+        return { skill: blastSlot + 1, aimX: aim.x, aimY: aim.y };
       }
     }
 
-    const skillIndex = FIREBALL_INDEX;
-    if (skillIndex < 0 || !canCast(skillIndex)) return null;
+    // 揮砍：刀子搆得到才砍
+    const slashSlot = slotOf((s) => s.type === "slash");
+    if (slashSlot >= 0 && canCast(slashSlot) && dist < kit[slashSlot].range + PLAYER_HALF - 4) {
+      const error = (rand(-1, 1) * BOT_CONFIG.slashErrorDeg * Math.PI) / 180;
+      const angle = Math.atan2(target.y - player.y, target.x - player.x) + error;
+      const aim = toInput(Math.cos(angle), Math.sin(angle));
+      return { skill: slashSlot + 1, aimX: aim.x || 1, aimY: aim.y };
+    }
 
-    const skill = SKILLS[skillIndex];
+    // 子彈（沒有 type 的就是直線飛行的子彈，例如火球）
+    const shotSlot = slotOf((s) => !s.type);
+    if (shotSlot < 0 || !canCast(shotSlot)) return null;
+
+    const skill = kit[shotSlot];
     if (dist > skill.speed * (skill.lifetimeTicks / TICK_RATE)) return null; // 射不到
     if (!hasLineOfSight(player.x, player.y, target.x, target.y, skill.radius, solid)) return null;
 
@@ -235,7 +277,7 @@ export class BotBrain {
     const angle = Math.atan2(aimY, aimX) + error;
     const aim = toInput(Math.cos(angle), Math.sin(angle));
     // aim 不能剛好是 (0,0)，那代表「自動瞄準」
-    return { skill: skillIndex + 1, aimX: aim.x || 1, aimY: aim.y };
+    return { skill: shotSlot + 1, aimX: aim.x || 1, aimY: aim.y };
   }
 
   /** 想移動卻一直沒動（卡在柱子上）→ 隨便換個方向走一下 */

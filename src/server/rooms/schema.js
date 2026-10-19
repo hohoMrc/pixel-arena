@@ -7,7 +7,7 @@ import { schema, t } from "@colyseus/schema";
 export const PlayerInput = schema({
   moveX: t.int8(), // 移動方向，每軸 -INPUT_SCALE ~ INPUT_SCALE（任意角度）
   moveY: t.int8(),
-  skill: t.int8(), // 0 = 沒放技能，1..N = 施放 SKILLS[N-1]
+  skill: t.int8(), // 0 = 沒放技能，1..4 = 按了自己技能組（KITS）的第幾格
   aimX: t.int8(),  // 技能瞄準方向；(0, 0) = 自動瞄準最近的敵人
   aimY: t.int8(),
 });
@@ -23,6 +23,10 @@ export const Player = schema({
   faceY: t.int8(),
   dashTicks: t.uint8(), // 衝刺剩下幾個 tick（> 0 = 衝刺中，無敵）
   dashCd: t.uint8(),    // 衝刺冷卻剩下幾個 tick
+  guardTicks: t.uint8(), // 舉盾剩下幾個 tick（> 0 = 盾牌舉著）
+  guardX: t.int8(),      // 盾牌朝向（-INPUT_SCALE ~ INPUT_SCALE）
+  guardY: t.int8(),
+  whirlTicks: t.uint8(), // 旋風斬剩下幾個 tick
   hp: t.uint8(),
   energy: t.uint8(), // 能量（伺服器內部用小數累積，這裡同步整數）
   rage: t.uint8(),   // 怒氣，集滿 RAGE.max 可以放大招

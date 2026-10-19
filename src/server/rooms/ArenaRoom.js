@@ -6,9 +6,19 @@ import { BotBrain } from "../bot.js";
 import { blastTarget, aimToward, meteorTargets } from "../../shared/blast.js";
 import {
   TICK_RATE, ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_MAX_HP,
-  RESPAWN_TICKS, SKILLS, DASH_INDEX, SPAWN_POINTS, MAX_PLAYERS, ROUND, INPUT_SCALE,
+  RESPAWN_TICKS, SKILLS, DASH_INDEX, SLOT_COUNT, kitSkill, kitOf, SPAWN_POINTS, MAX_PLAYERS, ROUND, INPUT_SCALE,
   SKIN_COUNT, NAME_MAX_LENGTH, ROOM_CODE_LENGTH, ENERGY, RAGE, OBSTACLES, PILLAR,
 } from "../../shared/constants.js";
+
+/** 新玩家、復活、新的一局時，技能狀態歸零的欄位 */
+const FRESH_STATUS = { dashTicks: 0, dashCd: 0, guardTicks: 0, whirlTicks: 0 };
+
+/** 兩個方向的夾角是否在 arcDeg 的一半以內（方向不用是單位向量） */
+function withinArc(dirX, dirY, toX, toY, arcDeg) {
+  const len = Math.hypot(dirX, dirY) * Math.hypot(toX, toY);
+  if (len === 0) return true; // 重疊在同一點時算在範圍內
+  return (dirX * toX + dirY * toY) / len >= Math.cos(((arcDeg / 2) * Math.PI) / 180);
+}
 
 /** 不能動的時候（死亡、倒數、結算）用的空輸入 */
 const IDLE_INPUT = { moveX: 0, moveY: 0, skill: 0, aimX: 0, aimY: 0 };
@@ -53,7 +63,7 @@ export class ArenaRoom extends Room {
     sanitize: {
       moveX: [-INPUT_SCALE, INPUT_SCALE], moveY: [-INPUT_SCALE, INPUT_SCALE],
       aimX: [-INPUT_SCALE, INPUT_SCALE], aimY: [-INPUT_SCALE, INPUT_SCALE],
-      skill: [0, SKILLS.length],
+      skill: [0, SLOT_COUNT],
     },
   });
 
@@ -106,10 +116,10 @@ export class ArenaRoom extends Room {
       name,
       skin,
       x: spawn.x, y: spawn.y, vx: 0, vy: 0,
-      faceX: spawn.x < ARENA_WIDTH / 2 ? INPUT_SCALE : -INPUT_SCALE, faceY: 0, dashTicks: 0, dashCd: 0,
+      faceX: spawn.x < ARENA_WIDTH / 2 ? INPUT_SCALE : -INPUT_SCALE, faceY: 0, ...FRESH_STATUS,
       hp: PLAYER_MAX_HP, alive: true, kills: 0, deaths: 0, energy: ENERGY.max, rage: 0,
     }));
-    this.meta.set(client.sessionId, { spawn, lastCastTick: SKILLS.map(() => -Infinity), respawnTick: 0, energy: ENERGY.max });
+    this.meta.set(client.sessionId, { spawn, lastCastTick: Array(SLOT_COUNT).fill(-Infinity), respawnTick: 0, energy: ENERGY.max });
     console.log(`[${this.roomId}] ${name} 加入`);
     if (replacedBot && this.state.phase !== "waiting") this.startCountdown();
     else this.checkPlayerCount();
@@ -130,10 +140,10 @@ export class ArenaRoom extends Room {
       name: `電腦${this.botCount}`,
       skin,
       x: spawn.x, y: spawn.y, vx: 0, vy: 0,
-      faceX: spawn.x < ARENA_WIDTH / 2 ? INPUT_SCALE : -INPUT_SCALE, faceY: 0, dashTicks: 0, dashCd: 0,
+      faceX: spawn.x < ARENA_WIDTH / 2 ? INPUT_SCALE : -INPUT_SCALE, faceY: 0, ...FRESH_STATUS,
       hp: PLAYER_MAX_HP, alive: true, kills: 0, deaths: 0, energy: ENERGY.max, rage: 0,
     }));
-    this.meta.set(id, { spawn, lastCastTick: SKILLS.map(() => -Infinity), respawnTick: 0, energy: ENERGY.max, brain: new BotBrain() });
+    this.meta.set(id, { spawn, lastCastTick: Array(SLOT_COUNT).fill(-Infinity), respawnTick: 0, energy: ENERGY.max, brain: new BotBrain() });
     console.log(`[${this.roomId}] 加入電腦對手 ${id}`);
     this.checkPlayerCount();
   }
@@ -213,10 +223,10 @@ export class ArenaRoom extends Room {
       const meta = this.meta.get(id);
       Object.assign(player, {
         x: meta.spawn.x, y: meta.spawn.y, vx: 0, vy: 0,
-        faceX: meta.spawn.x < ARENA_WIDTH / 2 ? INPUT_SCALE : -INPUT_SCALE, faceY: 0, dashTicks: 0, dashCd: 0,
+        faceX: meta.spawn.x < ARENA_WIDTH / 2 ? INPUT_SCALE : -INPUT_SCALE, faceY: 0, ...FRESH_STATUS,
         hp: PLAYER_MAX_HP, alive: true, kills: 0, deaths: 0, energy: ENERGY.max, rage: 0,
       });
-      meta.lastCastTick = SKILLS.map(() => -Infinity);
+      meta.lastCastTick = Array(SLOT_COUNT).fill(-Infinity);
       meta.energy = ENERGY.max;
     }
     this.clearProjectiles();
@@ -276,7 +286,9 @@ export class ArenaRoom extends Room {
       }
     }
 
-    // 2. 移動火球、判定命中；預告時間到的爆炸
+    // 2. 持續型技能（舉盾、旋風斬）；移動火球、判定命中；預告時間到的爆炸
+    if (!frozen) this.updateStatuses();
+    if (this.state.phase === "ended") return;
     this.updateProjectiles(ctx.dt);
     if (this.state.phase !== "ended") this.updateBlasts();
 
@@ -285,7 +297,7 @@ export class ArenaRoom extends Room {
     for (const [id, player] of this.state.players) {
       const meta = this.meta.get(id);
       if (!player.alive && this.tick >= meta.respawnTick) {
-        Object.assign(player, { x: meta.spawn.x, y: meta.spawn.y, vx: 0, vy: 0, hp: PLAYER_MAX_HP, alive: true, dashTicks: 0, dashCd: 0 });
+        Object.assign(player, { x: meta.spawn.x, y: meta.spawn.y, vx: 0, vy: 0, hp: PLAYER_MAX_HP, alive: true, ...FRESH_STATUS });
         meta.energy = ENERGY.max;
       }
       if (player.alive) meta.energy = Math.min(ENERGY.max, meta.energy + regen);
@@ -306,26 +318,38 @@ export class ArenaRoom extends Room {
     });
   }
 
-  /** 冷卻好了，而且能量（或大招的怒氣）夠 */
-  canCast(meta, player, skillIndex) {
-    const skill = SKILLS[skillIndex];
-    if (this.tick - meta.lastCastTick[skillIndex] < skill.cooldownTicks) return false;
+  /** 第 slot 格技能冷卻好了，而且能量（或大招的怒氣）夠 */
+  canCast(meta, player, slot) {
+    const skill = kitSkill(player.skin, slot);
+    if (!skill || this.tick - meta.lastCastTick[slot] < skill.cooldownTicks) return false;
     if (skill.ultimate) return player.rage >= RAGE.max;
     return meta.energy >= (skill.energyCost ?? 0);
   }
 
-  tryCastSkill(id, player, skillIndex, input) {
-    const skill = SKILLS[skillIndex];
+  /** 施放自己技能組第 slot 格的技能 */
+  tryCastSkill(id, player, slot, input) {
+    const skill = kitSkill(player.skin, slot);
     if (!skill || skill.type === "dash") return; // 衝刺在 stepEntity 處理
     const meta = this.meta.get(id);
-    if (!this.canCast(meta, player, skillIndex)) return;
-    meta.lastCastTick[skillIndex] = this.tick;
+    if (!this.canCast(meta, player, slot)) return;
+    meta.lastCastTick[slot] = this.tick;
     // 付出代價：大招清空怒氣，其他技能扣能量
     if (skill.ultimate) player.rage = 0;
     else meta.energy -= skill.energyCost ?? 0;
 
     if (skill.type === "blast" || skill.type === "meteor") {
-      this.castBlast(id, player, skillIndex, skill, input);
+      this.castBlast(id, player, skill, input);
+      return;
+    }
+    if (skill.type === "slash") return this.castSlash(id, player, skill, input);
+    if (skill.type === "guard") {
+      const [dirX, dirY] = this.aimDirection(id, player, input);
+      Object.assign(player, { guardTicks: skill.durationTicks, guardX: Math.round(dirX * INPUT_SCALE), guardY: Math.round(dirY * INPUT_SCALE) });
+      return;
+    }
+    if (skill.type === "whirl") {
+      player.whirlTicks = skill.durationTicks;
+      meta.whirlSkill = skill;
       return;
     }
 
@@ -334,7 +358,7 @@ export class ArenaRoom extends Room {
 
     this.state.projectiles.set(projectileId, new Projectile({
       owner: id,
-      skill: skillIndex,
+      skill: skill.id,
       x: player.x + dirX * (PLAYER_HALF + skill.radius + 1),
       y: player.y + dirY * (PLAYER_HALF + skill.radius + 1),
       vx: dirX * skill.speed,
@@ -347,7 +371,7 @@ export class ArenaRoom extends Room {
    * 指定地點爆炸：輕點 = 丟向最近的敵人（超過射程就丟到最遠），拖曳 = 丟到瞄準的位置。
    * 流星雨（meteor）同樣瞄準方式，只是在落點附近依序落下好幾顆。
    */
-  castBlast(id, player, skillIndex, skill, input) {
+  castBlast(id, player, skill, input) {
     let aim = { x: input.aimX, y: input.aimY };
     if (aim.x === 0 && aim.y === 0) {
       const target = this.nearestEnemy(id, player);
@@ -360,7 +384,7 @@ export class ArenaRoom extends Room {
       : [{ ...blastTarget(player.x, player.y, aim.x, aim.y, skill), fuseTicks: skill.fuseTicks }];
     for (const { x, y, fuseTicks } of points) {
       const blastId = String(this.nextProjectileId++);
-      this.state.blasts.set(blastId, new Blast({ owner: id, skill: skillIndex, x, y, fuse: fuseTicks }));
+      this.state.blasts.set(blastId, new Blast({ owner: id, skill: skill.id, x, y, fuse: fuseTicks }));
       this.blastDetonate.set(blastId, this.tick + fuseTicks);
     }
   }
@@ -374,7 +398,9 @@ export class ArenaRoom extends Room {
       for (const [id, player] of this.state.players) {
         if (id === b.owner || !player.alive) continue;
         if (player.dashTicks > 0 && SKILLS[DASH_INDEX]?.invulnerable) continue;
-        if (Math.hypot(player.x - b.x, player.y - b.y) <= skill.radius + PLAYER_HALF) targets.push({ id, player });
+        if (Math.hypot(player.x - b.x, player.y - b.y) > skill.radius + PLAYER_HALF) continue;
+        if (this.blockedByGuard(player, b.x, b.y, skill.damage)) continue;
+        targets.push({ id, player });
       }
       this.broadcast("impact", { x: Math.round(b.x), y: Math.round(b.y), skill: b.skill, hit: targets.length > 0, area: true });
       // 範圍內的柱子也會受傷
@@ -428,10 +454,13 @@ export class ArenaRoom extends Room {
       const pillarIndex = obstacleIndexHitByCircle(p.x, p.y, SKILLS[p.skill].radius, this.solid);
       const blocked = pillarIndex >= 0;
       const expired = this.tick >= this.projectileExpire.get(projectileId);
-      const target = blocked ? null : this.findHit(p);
+      let target = blocked ? null : this.findHit(p);
       if (blocked) this.damagePillar(pillarIndex, SKILLS[p.skill].damage, p.owner);
+      // 從盾牌那一側飛來的火球：擋掉（往回推一步當作來的方向）
+      const shielded = target && this.blockedByGuard(target.player, p.x - p.vx, p.y - p.vy, SKILLS[p.skill].damage);
+      if (shielded) target = null;
 
-      if (target || blocked || outOfArena || expired) {
+      if (target || blocked || shielded || outOfArena || expired) {
         // 通知所有人播特效：hit = 打中人（爆炸），否則是撞牆或時間到（冒煙）
         this.broadcast("impact", { x: Math.round(p.x), y: Math.round(p.y), skill: p.skill, hit: !!target });
         this.state.projectiles.delete(projectileId);
@@ -441,6 +470,84 @@ export class ArenaRoom extends Room {
       if (target) this.applyDamage(target.id, target.player, p.owner, SKILLS[p.skill].damage);
       if (this.state.phase === "ended") return;
     }
+  }
+
+  /**
+   * 揮砍：瞬間判定前方扇形，範圍內的敵人和柱子都會受傷。
+   * 方向：拖曳 = 瞄準方向，輕點 = 自動朝最近的敵人。
+   */
+  castSlash(id, player, skill, input) {
+    const [dirX, dirY] = this.aimDirection(id, player, input);
+    const reach = skill.range + PLAYER_HALF;
+    const targets = [];
+    for (const [otherId, other] of this.state.players) {
+      if (otherId === id || !other.alive) continue;
+      if (other.dashTicks > 0 && SKILLS[DASH_INDEX]?.invulnerable) continue;
+      const dx = other.x - player.x;
+      const dy = other.y - player.y;
+      // 貼身（重疊）時不管方向都砍得到
+      const touching = Math.hypot(dx, dy) <= PLAYER_HALF * 2;
+      if (Math.hypot(dx, dy) > reach || (!touching && !withinArc(dirX, dirY, dx, dy, skill.arcDeg))) continue;
+      if (this.blockedByGuard(other, player.x, player.y, skill.damage)) continue;
+      targets.push({ id: otherId, player: other });
+    }
+    // 刀尖附近的柱子
+    const tipX = player.x + dirX * skill.range * 0.6;
+    const tipY = player.y + dirY * skill.range * 0.6;
+    OBSTACLE_RECTS.forEach((r, i) => {
+      if (this.solid[i] && circleOverlapsRect(tipX, tipY, skill.range * 0.5, r)) this.damagePillar(i, skill.damage, id);
+    });
+    this.broadcast("swing", {
+      x: Math.round(player.x), y: Math.round(player.y),
+      dx: Math.round(dirX * INPUT_SCALE), dy: Math.round(dirY * INPUT_SCALE),
+      skill: skill.id, hit: targets.length > 0,
+    });
+    for (const t of targets) {
+      this.applyDamage(t.id, t.player, id, skill.damage);
+      if (this.state.phase === "ended") return;
+    }
+  }
+
+  /** 每個 tick：盾牌倒數；旋風斬每 hitEveryTicks 砍一次周圍的人（剛放的那一下就會砍） */
+  updateStatuses() {
+    for (const [id, player] of this.state.players) {
+      if (player.guardTicks > 0) player.guardTicks--;
+      if (player.whirlTicks === 0) continue;
+      const skill = this.meta.get(id)?.whirlSkill;
+      const hitNow = skill && player.whirlTicks % skill.hitEveryTicks === 0;
+      player.whirlTicks--;
+      if (!hitNow || !player.alive) continue;
+
+      const targets = [];
+      for (const [otherId, other] of this.state.players) {
+        if (otherId === id || !other.alive) continue;
+        if (other.dashTicks > 0 && SKILLS[DASH_INDEX]?.invulnerable) continue;
+        if (Math.hypot(other.x - player.x, other.y - player.y) > skill.radius + PLAYER_HALF) continue;
+        if (this.blockedByGuard(other, player.x, player.y, skill.damage)) continue;
+        targets.push({ id: otherId, player: other });
+      }
+      OBSTACLE_RECTS.forEach((r, i) => {
+        if (this.solid[i] && circleOverlapsRect(player.x, player.y, skill.radius, r)) this.damagePillar(i, skill.damage, id);
+      });
+      for (const t of targets) {
+        this.broadcast("impact", { x: Math.round(t.player.x), y: Math.round(t.player.y), skill: skill.id, hit: true });
+        this.applyDamage(t.id, t.player, id, skill.damage);
+        if (this.state.phase === "ended") return;
+      }
+    }
+  }
+
+  /**
+   * 盾牌有沒有擋下從 (fromX, fromY) 來的攻擊。擋下時播特效、累積一點怒氣。
+   * 攻擊來源在盾牌朝向的 arcDeg 範圍內才擋得到（背後被打一樣會受傷）。
+   */
+  blockedByGuard(target, fromX, fromY, damage) {
+    if (target.guardTicks === 0) return false;
+    const guard = kitOf(target.skin).find((s) => s.type === "guard");
+    if (!guard || !withinArc(target.guardX, target.guardY, fromX - target.x, fromY - target.y, guard.arcDeg)) return false;
+    target.rage = Math.min(RAGE.max, target.rage + damage * RAGE.perDamageTaken);
+    this.broadcast("block", { x: Math.round(target.x), y: Math.round(target.y), dx: target.guardX, dy: target.guardY });
+    return true;
   }
 
   /** 柱子受傷；打壞後不再擋人和技能，PILLAR.respawnTicks 後長回來 */
@@ -493,7 +600,7 @@ export class ArenaRoom extends Room {
     if (target.hp > 0) return;
 
     target.alive = false;
-    target.dashTicks = 0;
+    Object.assign(target, { dashTicks: 0, guardTicks: 0, whirlTicks: 0 });
     this.meta.get(targetId).respawnTick = this.tick + RESPAWN_TICKS;
 
     // 只有正式對戰中才計分（等待中的練習不算）

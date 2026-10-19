@@ -51,6 +51,8 @@ async function main() {
   // 第一次收到狀態時，自己的角色才會出現
   await new Promise((resolve) => room.onStateChange.once(() => resolve()));
   const self = room.state.players.get(room.sessionId);
+  // 技能按鈕換成自己角色的技能組（以伺服器確認過的角色為準）
+  controls.setKit(self.skin);
 
   // 每根柱子還在不在：ArenaScene 每幀從伺服器狀態更新，預測移動時才知道哪些柱子已經被打壞
   const solid = OBSTACLES.map(() => true);

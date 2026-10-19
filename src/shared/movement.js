@@ -1,4 +1,4 @@
-import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_SPEED, SKILLS, DASH_INDEX } from "./constants.js";
+import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_SPEED, SKILLS, DASH_INDEX, DASH_SLOT } from "./constants.js";
 import { obstacleHitByBox } from "./obstacles.js";
 
 const clamp = (value, min, max) => (value < min ? min : value > max ? max : value);
@@ -27,7 +27,7 @@ export function stepEntity(entity, input, dt, solid) {
   }
 
   // 開始衝刺：方向 = 面向（有推搖桿時就是推的方向）
-  if (dash && input.skill === DASH_INDEX + 1 && entity.dashCd === 0 && entity.dashTicks === 0) {
+  if (dash && input.skill === DASH_SLOT + 1 && entity.dashCd === 0 && entity.dashTicks === 0) {
     entity.dashTicks = dash.ticks;
     entity.dashCd = dash.cooldownTicks;
   }

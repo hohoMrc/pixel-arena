@@ -116,6 +116,7 @@ html, body {
 }
 .skin-card img { width: 48px; height: 60px; image-rendering: pixelated; }
 .skin-card.selected { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, var(--panel)); }
+#lobby-kit { font-size: 13px; color: var(--muted); min-height: 1.2em; margin-top: -4px; }
 #lobby-join {
   font: inherit;
   font-size: 18px;

@@ -1,4 +1,4 @@
-import { SKILLS, TICK_RATE, DASH_INDEX, INPUT_SCALE, RAGE } from "../shared/constants.js";
+import { TICK_RATE, DASH_SLOT, SLOT_COUNT, INPUT_SCALE, RAGE, kitOf } from "../shared/constants.js";
 import { theme } from "./theme.js";
 
 /** 搖桿推超過半徑的這個比例才算有方向 */
@@ -34,24 +34,40 @@ const KEYS = {
  *   按住拖曳 → 往拖的方向瞄準（畫面會顯示瞄準線），放開才發射
  *   指定地點技能（爆炎）：拖越遠丟越遠，畫面顯示落點圈
  * 衝刺：按下立刻衝，方向 = 移動方向。
+ *
+ * 按鈕和技能組（KITS）一樣是 4 格，「第幾格」以下都叫 slot；
+ * 每個角色同一格的技能不同，進房間後由 setKit(skin) 換成自己的技能組。
  */
 export class Controls {
   stick = { x: 0, y: 0 };      // 搖桿方向（-INPUT_SCALE ~ INPUT_SCALE）
-  heldSkills = new Set();      // 正在按住的技能索引（衝刺、鍵盤）
+  heldSkills = new Set();      // 正在按住的技能格（衝刺、鍵盤）
   heldKeys = new Set();
-  /** 正在拖曳瞄準：{ skill, x, y, power }（x/y 是單位向量，power 0~1 是拖多遠），沒有則為 null。ArenaScene 用來畫瞄準線 */
+  /** 正在拖曳瞄準：{ slot, skill, x, y, power }（skill 是技能資料，x/y 是單位向量，power 0~1 是拖多遠），沒有則為 null。ArenaScene 用來畫瞄準線 */
   aiming = null;
-  /** 放開後等著送出的技能：{ skill, aimX, aimY, at } */
+  /** 放開後等著送出的技能：{ slot, aimX, aimY, at } */
   pendingCast = null;
-  lastCastAt = SKILLS.map(() => -Infinity); // 本地估算的冷卻起點（ms）
+  lastCastAt = Array(SLOT_COUNT).fill(-Infinity); // 本地估算的冷卻起點（ms）
+  /** 目前的技能組（4 個技能資料） */
+  kit = kitOf(0);
   /** 自己目前的能量、怒氣（ArenaScene 每幀從伺服器狀態更新），用來判斷技能能不能放 */
   energy = 0;
   rage = 0;
 
   constructor({ joystick, knob, skillsEl }) {
     this.setupJoystick(joystick, knob);
-    this.skillButtons = this.setupSkills(skillsEl);
+    this.skillsEl = skillsEl;
+    this.skillButtons = this.setupSkills();
     this.setupKeyboard();
+  }
+
+  /** 換成某個角色的技能組（重建按鈕） */
+  setKit(skin) {
+    this.kit = kitOf(skin);
+    this.skillsEl.replaceChildren();
+    this.heldSkills.clear();
+    this.aiming = null;
+    this.resetCooldowns();
+    this.skillButtons = this.setupSkills();
   }
 
   /** @param {boolean} canAct 死亡、倒數、結算時為 false：不放技能，也不開始本地冷卻計時 */
@@ -70,35 +86,35 @@ export class Controls {
 
     // 一次只能送一個技能；衝刺是閃避用的，同時按住時以衝刺優先（放開的技能留到下個 tick）
     const held = (i) => this.heldSkills.has(i) || key(KEYS.skills[i] ?? []);
-    if (DASH_INDEX >= 0 && held(DASH_INDEX)) {
-      this.markCast(DASH_INDEX);
-      return { ...move, skill: DASH_INDEX + 1, aimX: 0, aimY: 0 };
+    if (held(DASH_SLOT)) {
+      this.markCast(DASH_SLOT);
+      return { ...move, skill: DASH_SLOT + 1, aimX: 0, aimY: 0 };
     }
 
     // 觸控：放開的技能。冷卻還沒好就再等一下，超過緩衝時間才放棄
     const now = performance.now();
     const pending = this.pendingCast;
-    if (pending && this.ready(pending.skill, now)) {
+    if (pending && this.ready(pending.slot, now)) {
       this.pendingCast = null;
-      this.markCast(pending.skill);
-      return { ...move, skill: pending.skill + 1, aimX: pending.aimX, aimY: pending.aimY };
+      this.markCast(pending.slot);
+      return { ...move, skill: pending.slot + 1, aimX: pending.aimX, aimY: pending.aimY };
     }
     if (pending && now - pending.at > CAST_BUFFER_MS) this.pendingCast = null;
 
     // 鍵盤：按住連發，自動瞄準
-    for (let i = 0; i < SKILLS.length; i++) {
+    for (let i = 0; i < this.kit.length; i++) {
       if (held(i)) { this.markCast(i); return { ...move, skill: i + 1, aimX: 0, aimY: 0 }; }
     }
     return { ...move, skill: 0, aimX: 0, aimY: 0 };
   }
 
   cooldownReady(i, now) {
-    return now - this.lastCastAt[i] >= (SKILLS[i].cooldownTicks / TICK_RATE) * 1000;
+    return now - this.lastCastAt[i] >= (this.kit[i].cooldownTicks / TICK_RATE) * 1000;
   }
 
   /** 能量（大招看怒氣）夠不夠 */
   hasResource(i) {
-    const skill = SKILLS[i];
+    const skill = this.kit[i];
     return skill.ultimate ? this.rage >= RAGE.max : this.energy >= (skill.energyCost ?? 0);
   }
 
@@ -115,7 +131,7 @@ export class Controls {
   updateCooldowns(now, { dashCd = 0, energy = 0, rage = 0 } = {}) {
     this.energy = energy;
     this.rage = rage;
-    SKILLS.forEach((s, i) => {
+    this.kit.forEach((s, i) => {
       const btn = this.skillButtons[i];
 
       // 大招：遮罩蓋住「還沒集滿」的部分，集滿時發光
@@ -126,7 +142,7 @@ export class Controls {
       }
 
       const totalMs = (s.cooldownTicks / TICK_RATE) * 1000;
-      const leftMs = i === DASH_INDEX
+      const leftMs = i === DASH_SLOT
         ? (dashCd / TICK_RATE) * 1000
         : Math.max(0, totalMs - (now - this.lastCastAt[i]));
       btn.style.setProperty("--cd", leftMs / totalMs);
@@ -146,7 +162,7 @@ export class Controls {
 
   /** 新的一局開始，伺服器會重置冷卻，這裡跟著重置 */
   resetCooldowns() {
-    this.lastCastAt = SKILLS.map(() => -Infinity);
+    this.lastCastAt = Array(SLOT_COUNT).fill(-Infinity);
     this.pendingCast = null;
   }
 
@@ -193,17 +209,17 @@ export class Controls {
     base.addEventListener("pointercancel", release);
   }
 
-  setupSkills(container) {
-    return SKILLS.map((skill, i) => {
+  setupSkills() {
+    return this.kit.map((skill, i) => {
       const btn = document.createElement("button");
-      btn.className = `skill skill-${i}`;
+      btn.className = `skill skill-${i}`; // 按鈕位置看格子編號（style.css）
       // 右上角的能量消耗標籤（沒有消耗的技能不顯示）
       const cost = skill.energyCost ? `<span class="cost">⚡${skill.energyCost}</span>` : "";
-      btn.innerHTML = `<span class="icon">${theme.skillIcons[i] ?? "★"}</span><span class="label">${skill.name}</span>${cost}<span class="cd-text"></span>`;
+      btn.innerHTML = `<span class="icon">${theme.skillIcons[skill.id] ?? "★"}</span><span class="label">${skill.name}</span>${cost}<span class="cd-text"></span>`;
       btn.cdText = btn.querySelector(".cd-text");
 
       btn.addEventListener("contextmenu", (e) => e.preventDefault()); // 長按不跳選單
-      container.appendChild(btn);
+      this.skillsEl.appendChild(btn);
       if (skill.type === "dash") this.setupHoldButton(btn, i);
       else this.setupAimButton(btn, i);
       return btn;
@@ -238,7 +254,7 @@ export class Controls {
       const dist = Math.hypot(dx, dy);
       this.aiming = dist < AIM_DEAD_ZONE_PX
         ? null
-        : { skill: i, x: dx / dist, y: dy / dist, power: Math.min(1, dist / AIM_MAX_DRAG_PX) };
+        : { slot: i, skill: this.kit[i], x: dx / dist, y: dy / dist, power: Math.min(1, dist / AIM_MAX_DRAG_PX) };
       btn.classList.toggle("aiming", !!this.aiming);
     });
     const finish = (e, cast) => {
@@ -246,7 +262,7 @@ export class Controls {
       if (cast) {
         // 子彈只看方向（伺服器會正規化），指定地點技能用長度決定距離
         const aim = this.aiming ? toInputDir(this.aiming.x, this.aiming.y, this.aiming.power) : { x: 0, y: 0 };
-        this.pendingCast = { skill: i, aimX: aim.x, aimY: aim.y, at: performance.now() };
+        this.pendingCast = { slot: i, aimX: aim.x, aimY: aim.y, at: performance.now() };
       }
       drag = null;
       this.aiming = null;

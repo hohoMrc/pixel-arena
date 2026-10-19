@@ -110,6 +110,23 @@ const SOUNDS = {
     synth({ duration: 0.12, wave: "noise", freq: [700, 200], decay: 4, lowpass: [0.5, 0.2] }),
     synth({ duration: 0.5, wave: "noise", freq: [400, 60], decay: 3.5, lowpass: [0.3, 0.04], noiseMix: 0.3 }),
   ),
+  // ── 紅劍士（加在最後，前面的聲音才不會因為亂數順序改變而變調）──
+  // 揮砍：快速的破風聲
+  slash: () => synth({ duration: 0.14, wave: "noise", freq: [6000, 1200], attack: 0.01, decay: 6, lowpass: [0.6, 0.15] }),
+  // 砍中：厚實的打擊聲
+  slash_hit: () => concat(
+    synth({ duration: 0.05, wave: "square", freq: [220, 110], decay: 3, lowpass: [0.5, 0.3], noiseMix: 0.5 }),
+    synth({ duration: 0.16, wave: "noise", freq: [1800, 300], decay: 6, lowpass: [0.5, 0.1] }),
+  ),
+  // 舉盾：往上的金屬聲
+  guard: () => synth({ duration: 0.2, wave: "triangle", freq: [600, 1200], decay: 4, noiseMix: 0.1 }),
+  // 盾牌擋下：清脆的「鏘」
+  block: () => concat(
+    synth({ duration: 0.03, wave: "noise", freq: [8000, 4000], decay: 2, lowpass: [0.9, 0.6] }),
+    synth({ duration: 0.25, wave: "square", freq: [1760, 1700], decay: 7, lowpass: [0.35, 0.2], vibrato: 30 }),
+  ),
+  // 旋風斬：持續的呼呼聲
+  whirl: () => synth({ duration: 0.7, wave: "noise", freq: [900, 2400], attack: 0.05, decay: 2, lowpass: [0.2, 0.35], vibrato: 9 }),
 };
 
 /** 正規化音量並寫成 16-bit 單聲道 WAV */

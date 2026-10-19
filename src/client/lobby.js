@@ -1,4 +1,4 @@
-import { NAME_MAX_LENGTH, SKIN_COUNT, ROOM_CODE_LENGTH } from "../shared/constants.js";
+import { NAME_MAX_LENGTH, SKIN_COUNT, ROOM_CODE_LENGTH, DASH_SLOT, kitOf } from "../shared/constants.js";
 import { theme, playerTextureKey } from "./theme.js";
 
 /** 上次的名稱和角色存在這台裝置，下次打開自動帶入 */
@@ -59,9 +59,15 @@ export function showLobby(form, error = "") {
     form.dataset.ready = "1";
   }
   const cards = [...skinsEl.children];
+  const kitEl = form.querySelector("#lobby-kit");
   const select = (i) => {
     skin = i;
     cards.forEach((c, j) => c.classList.toggle("selected", i === j));
+    // 選中的角色有哪些技能（衝刺大家都有，不列）
+    kitEl.textContent = kitOf(i)
+      .filter((_, slot) => slot !== DASH_SLOT)
+      .map((s) => `${theme.skillIcons[s.id] ?? ""}${s.name}`)
+      .join("　");
   };
   selectSkin = select;
   select(skin);

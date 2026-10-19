@@ -66,13 +66,21 @@ export const theme = {
     lose:             "assets/sfx/lose.wav",
     pillar_hit:       "assets/sfx/pillar_hit.wav",
     pillar_break:     "assets/sfx/pillar_break.wav",
+    slash:            "assets/sfx/slash.wav",
+    slash_hit:        "assets/sfx/slash_hit.wav",
+    guard:            "assets/sfx/guard.wav",
+    block:            "assets/sfx/block.wav",
+    whirl:            "assets/sfx/whirl.wav",
   },
-  /** 每個技能（對應 SKILLS 的順序）施放和命中時播哪個音效 */
+  /** 每個技能（索引 = SKILLS 的技能編號）施放和命中時播哪個音效 */
   skillSounds: [
     { cast: "cast_fireball", hit: "explode_small" },
     { cast: "cast_bigfireball", hit: "explode_big" },
     { cast: "dash" },
     { cast: "cast_bigfireball", hit: "explode_big" },
+    { cast: "slash", hit: "slash_hit" },   // 揮砍
+    { cast: "guard" },                     // 舉盾（擋下時播 block）
+    { cast: "whirl", hit: "slash_hit" },   // 旋風斬
   ],
   /** 衝刺殘影：每幾毫秒留一個、殘影多久消失 */
   dashTrail: { everyMs: 30, fadeMs: 220, alpha: 0.5 },
@@ -93,11 +101,20 @@ export const theme = {
   walkFrameRate: 8,
 
   // 技能按鈕上的圖示（文字或 emoji；之後也可以改成圖片）
-  skillIcons: ["🔥", "💥", "💨", "☄️"],
+  // 索引 = SKILLS 的技能編號
+  skillIcons: ["🔥", "💥", "💨", "☄️", "🗡️", "🛡️", "🌀"],
   /** 進場畫面的角色名稱，順序 = skin 編號（數量要和 shared/constants.js 的 SKIN_COUNT 一致） */
   skins: ["藍法師", "紅劍士", "綠巫師", "金武僧"],
-  /** 拖曳瞄準時瞄準線的顏色，順序同 SKILLS */
-  aimGuideColors: [0xff8a3d, 0xff4d2e, 0xffffff, 0xffd23f],
+  /** 拖曳瞄準時瞄準線的顏色，索引 = SKILLS 的技能編號 */
+  aimGuideColors: [0xff8a3d, 0xff4d2e, 0xffffff, 0xffd23f, 0xffffff, 0x7fd4ff, 0xff6b5c],
+  /** 近戰技能的畫面效果 */
+  meleeFx: {
+    slashColor: 0xfff4d6,  // 揮砍刀光
+    slashMs: 140,          // 刀光多久消失
+    guardColor: 0x7fd4ff,  // 盾牌
+    whirlColor: 0xff6b5c,  // 旋風斬的圈
+    whirlSpinMs: 70,       // 旋轉時角色多久翻一次面
+  },
 };
 
 export const playerTextureKey = (skin) => `player${skin}`;

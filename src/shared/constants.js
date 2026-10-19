@@ -101,13 +101,62 @@ export const SKILLS = [
     ringCount: 6,        // 外圈幾顆（中間還有 1 顆）
     cooldownTicks: 30,   // 防止連按重複施放
   },
+
+  // ── 紅劍士 ──
+  {
+    name: "揮砍",
+    type: "slash",       // 近戰：瞬間砍前方扇形範圍內的所有敵人
+    range: 44,           // 從角色中心到刀尖的距離
+    arcDeg: 120,         // 扇形角度
+    damage: 26,
+    cooldownTicks: 15,   // 0.5 秒
+    energyCost: 7,
+  },
+  {
+    name: "舉盾",
+    type: "guard",       // 一段時間內擋下「從盾牌那一側來的」所有傷害
+    durationTicks: 30,   // 1 秒
+    arcDeg: 150,         // 盾牌擋得到的角度
+    cooldownTicks: 120,  // 4 秒
+    energyCost: 20,
+  },
+  {
+    name: "旋風斬",
+    type: "whirl",       // 持續轉圈，每隔一段時間砍一次周圍的人；轉的時候可以移動
+    ultimate: true,
+    durationTicks: 60,   // 2 秒
+    hitEveryTicks: 10,   // 每 0.33 秒砍一次（共 6 次）
+    radius: 40,
+    damage: 14,          // 6 次全中 = 84
+    cooldownTicks: 30,
+  },
 ];
 
-/** 大招在 SKILLS 裡的索引（沒有大招時是 -1） */
-export const ULTIMATE_INDEX = SKILLS.findIndex((s) => s.ultimate);
+// 技能編號 = 在 SKILLS 裡的索引（火球、爆炸會記錄是哪個技能放的）
+SKILLS.forEach((skill, id) => (skill.id = id));
 
-/** 衝刺在 SKILLS 裡的索引（沒有衝刺技能時是 -1） */
-export const DASH_INDEX = SKILLS.findIndex((s) => s.type === "dash");
+/**
+ * 每個角色的技能組，順序 = skin 編號。每組 4 格，對應按鈕位置：
+ *   0 普攻（右下大顆） 1 技能（左下） 2 衝刺（右上，大家共用） 3 大招（左上）
+ * 數字是 SKILLS 的索引。綠巫師、金武僧還沒做，先用法師的。
+ */
+export const KITS = [
+  [0, 1, 2, 3], // 藍法師：火球、爆炎、衝刺、流星雨
+  [4, 5, 2, 6], // 紅劍士：揮砍、舉盾、衝刺、旋風斬
+  [0, 1, 2, 3], // 綠巫師
+  [0, 1, 2, 3], // 金武僧
+];
+export const SLOT_COUNT = 4;
+/** 衝刺固定在第 2 格（移動預測 stepEntity 靠這個判斷） */
+export const DASH_SLOT = 2;
+export const ULTIMATE_SLOT = 3;
+/** 衝刺技能本身（大家共用同一個） */
+export const DASH_INDEX = KITS[0][DASH_SLOT];
+
+/** 某個角色第 slot 格的技能（skin 超出範圍時用第一個角色的） */
+export const kitSkill = (skin, slot) => SKILLS[(KITS[skin] ?? KITS[0])[slot]];
+/** 某個角色的 4 個技能 */
+export const kitOf = (skin) => (KITS[skin] ?? KITS[0]).map((id) => SKILLS[id]);
 
 /**
  * 障礙物（石柱）。座標是「地面佔地」的中心點，w/h 是佔地大小，會擋人也會擋技能。

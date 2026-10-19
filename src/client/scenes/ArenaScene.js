@@ -107,6 +107,8 @@ export class ArenaScene extends Phaser.Scene {
     this.bars = this.add.graphics().setDepth(1000); // 血條統一畫在最上層
     this.aimGuide = this.add.graphics().setDepth(999);
     this.blastGraphics = this.add.graphics().setDepth(SHADOW.depth + 0.1); // 預告圈畫在地上
+    this.floorFx = this.add.graphics().setDepth(SHADOW.depth + 0.2);        // 旋風斬的圈（地上）
+    this.statusFx = this.add.graphics().setDepth(998);                       // 盾牌（蓋在角色上面）
     this.createShadowTexture("shadow-player", SHADOW.player);
     this.createShadowTexture("shadow-projectile", SHADOW.projectile);
     // 固定在畫面中間（不跟著鏡頭捲動）
@@ -183,6 +185,8 @@ export class ArenaScene extends Phaser.Scene {
     });
 
     this.room.onMessage("impact", (impact) => this.spawnImpact(impact));
+    this.room.onMessage("swing", (swing) => this.spawnSwing(swing));
+    this.room.onMessage("block", (block) => this.spawnBlock(block));
     this.roundOverlay = new RoundOverlay(document.getElementById("overlay"), this.room, (key) => this.playSfx(key));
   }
 
@@ -214,6 +218,8 @@ export class ArenaScene extends Phaser.Scene {
     });
 
     this.bars.clear();
+    this.floorFx.clear();
+    this.statusFx.clear();
     for (const [id, player] of this.room.state.players) {
       const view = this.playerViews.get(id);
       if (!view) continue;
@@ -241,6 +247,7 @@ export class ArenaScene extends Phaser.Scene {
       this.updateWalk(view, player, x, y, now, faceX, faceY);
       this.updateFlash(view, now);
       this.updateDash(view, player, isSelf, now);
+      this.updateMelee(view, player, x, y, isSelf, now);
       view.label.setPosition(Math.round(x), headY - 4).setDepth(feetY + 0.5);
       view.shadow.setPosition(Math.round(x), feetY).setAlpha(player.alive ? SHADOW.player.alpha : SHADOW.player.alpha * 0.4);
 
@@ -296,10 +303,25 @@ export class ArenaScene extends Phaser.Scene {
     this.aimGuide.clear();
     const aim = this.controls.aiming;
     if (!aim || !self || !canAct) return;
-    const skill = SKILLS[aim.skill];
+    const skill = aim.skill;
     const x = this.predict.value(self, "x");
     const y = this.predict.value(self, "y");
-    const color = theme.aimGuideColors?.[aim.skill] ?? 0xffffff;
+    const color = theme.aimGuideColors?.[skill.id] ?? 0xffffff;
+    const angle = Math.atan2(aim.y, aim.x);
+
+    // 揮砍：前方的扇形範圍；舉盾：盾牌會擋的角度；旋風斬：周圍一圈
+    if (skill.type === "slash" || skill.type === "guard") {
+      const reach = skill.type === "slash" ? skill.range + PLAYER_HALF : PLAYER_HALF + 14;
+      const half = (skill.arcDeg / 2) * (Math.PI / 180);
+      this.aimGuide.fillStyle(color, 0.18).slice(x, y, reach, angle - half, angle + half).fillPath();
+      this.aimGuide.lineStyle(1, color, AIM_GUIDE.alpha).slice(x, y, reach, angle - half, angle + half).strokePath();
+      return;
+    }
+    if (skill.type === "whirl") {
+      this.aimGuide.lineStyle(1, color, AIM_GUIDE.alpha).strokeCircle(x, y, skill.radius + PLAYER_HALF);
+      this.aimGuide.fillStyle(color, 0.12).fillCircle(x, y, skill.radius + PLAYER_HALF);
+      return;
+    }
 
     if (skill.type === "blast" || skill.type === "meteor") {
       // 和伺服器用同一個函式算落點，看到哪就炸哪
@@ -532,6 +554,76 @@ export class ArenaScene extends Phaser.Scene {
         .setTint(0x9fdcff).setTintMode(Phaser.TintModes.FILL);
       this.tweens.add({ targets: ghost, alpha: 0, duration: fadeMs, onComplete: () => ghost.destroy() });
     }
+  }
+
+  /**
+   * 紅劍士的持續型技能（伺服器狀態，所有人都看得到）：
+   *   舉盾 → 身體前方一道藍色弧線
+   *   旋風斬 → 地上一圈旋轉的刀光，角色快速左右翻面
+   */
+  updateMelee(view, player, x, y, isSelf, now) {
+    const fx = theme.meleeFx;
+    const volume = isSelf ? 1 : theme.othersVolume;
+    const cx = Math.round(x);
+    const cy = Math.round(y) - 4; // 身體中間（碰撞圓心在腳底上方一點）
+
+    const guarding = player.guardTicks > 0 && player.alive;
+    if (guarding && !view.wasGuarding) this.playSfx("guard", volume);
+    view.wasGuarding = guarding;
+    if (guarding) {
+      const angle = Math.atan2(player.guardY, player.guardX);
+      const guard = SKILLS.find((s) => s.type === "guard");
+      const half = (guard.arcDeg / 2) * (Math.PI / 180);
+      // 快結束時閃爍，提醒盾牌要放下了
+      const fading = player.guardTicks < 8 && Math.floor(now / 60) % 2 === 0;
+      this.statusFx.lineStyle(3, fx.guardColor, fading ? 0.35 : 0.9);
+      this.statusFx.beginPath().arc(cx, cy, PLAYER_HALF + 8, angle - half, angle + half).strokePath();
+    }
+
+    const whirling = player.whirlTicks > 0 && player.alive;
+    if (whirling && !view.wasWhirling) this.playSfx("whirl", volume);
+    view.wasWhirling = whirling;
+    if (whirling) {
+      const whirl = SKILLS.find((s) => s.type === "whirl");
+      const r = whirl.radius + PLAYER_HALF;
+      const spin = (now / 90) % (Math.PI * 2);
+      this.floorFx.fillStyle(fx.whirlColor, 0.12).fillCircle(cx, Math.round(y), r);
+      this.floorFx.lineStyle(2, fx.whirlColor, 0.85);
+      // 三道刀光繞著轉
+      for (let k = 0; k < 3; k++) {
+        const a = spin + (k * Math.PI * 2) / 3;
+        this.floorFx.beginPath().arc(cx, Math.round(y), r, a, a + 0.9).strokePath();
+      }
+      view.sprite.setFlipX(Math.floor(now / fx.whirlSpinMs) % 2 === 0);
+    }
+  }
+
+  /** 揮砍：沿著扇形畫一道刀光，很快淡掉 */
+  spawnSwing({ x, y, dx, dy, skill, hit }) {
+    const def = SKILLS[skill];
+    const sounds = theme.skillSounds[skill] ?? {};
+    this.playSfx(hit ? sounds.hit : sounds.cast);
+    const angle = Math.atan2(dy, dx);
+    const half = (def.arcDeg / 2) * (Math.PI / 180);
+    const reach = def.range + PLAYER_HALF;
+    const g = this.add.graphics().setDepth(997);
+    const color = theme.meleeFx.slashColor;
+    g.fillStyle(color, 0.25).slice(x, y - 4, reach, angle - half, angle + half).fillPath();
+    g.lineStyle(3, color, 0.95).beginPath().arc(x, y - 4, reach - 3, angle - half, angle + half).strokePath();
+    this.tweens.add({ targets: g, alpha: 0, duration: theme.meleeFx.slashMs, onComplete: () => g.destroy() });
+    if (hit) this.cameras.main.shake(60, 0.003);
+  }
+
+  /** 盾牌擋下攻擊：盾牌位置冒一圈火花 */
+  spawnBlock({ x, y, dx, dy }) {
+    this.playSfx("block");
+    const len = Math.hypot(dx, dy) || 1;
+    const bx = x + (dx / len) * (PLAYER_HALF + 8);
+    const by = y - 4 + (dy / len) * (PLAYER_HALF + 8);
+    const g = this.add.graphics().setDepth(1001);
+    g.fillStyle(0xffffff, 1).fillCircle(bx, by, 4);
+    g.lineStyle(2, theme.meleeFx.guardColor, 1).strokeCircle(bx, by, 7);
+    this.tweens.add({ targets: g, alpha: 0, duration: 200, onComplete: () => g.destroy() });
   }
 
   /**
