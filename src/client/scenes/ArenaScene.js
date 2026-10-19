@@ -1,6 +1,6 @@
 import * as Phaser from "phaser";
 import { Callbacks } from "@colyseus/sdk";
-import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_MAX_HP, SKILLS, DASH_INDEX, TICK_RATE, INPUT_SCALE, ENERGY, PILLAR } from "../../shared/constants.js";
+import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, maxHpOf, SKILLS, DASH_INDEX, TICK_RATE, INPUT_SCALE, ENERGY, PILLAR } from "../../shared/constants.js";
 import { theme, playerTextureKey, walkTextureKey, facingTextureKey, IDLE_FRAME } from "../theme.js";
 import { createMissingTextures } from "../placeholders.js";
 import { OBSTACLE_RECTS, circleHitsObstacle } from "../../shared/obstacles.js";
@@ -251,7 +251,7 @@ export class ArenaScene extends Phaser.Scene {
       view.label.setPosition(Math.round(x), headY - 4).setDepth(feetY + 0.5);
       view.shadow.setPosition(Math.round(x), feetY).setAlpha(player.alive ? SHADOW.player.alpha : SHADOW.player.alpha * 0.4);
 
-      if (player.alive) this.drawHpBar(x, headY, player.hp / PLAYER_MAX_HP, isSelf ? player.energy / ENERGY.max : null);
+      if (player.alive) this.drawHpBar(x, headY, player.hp / maxHpOf(player.skin), isSelf ? player.energy / ENERGY.max : null);
     }
 
     for (const [id, p] of this.room.state.projectiles) {

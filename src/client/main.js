@@ -1,6 +1,6 @@
 import * as Phaser from "phaser";
 import { Predict } from "@colyseus/sdk/predict";
-import { OBSTACLES } from "../shared/constants.js";
+import { OBSTACLES, moveStatsOf } from "../shared/constants.js";
 import { stepEntity } from "../shared/movement.js";
 import { theme } from "./theme.js";
 import { joinArena } from "./network.js";
@@ -53,6 +53,7 @@ async function main() {
   const self = room.state.players.get(room.sessionId);
   // 技能按鈕換成自己角色的技能組（以伺服器確認過的角色為準）
   controls.setKit(self.skin);
+  const moveStats = moveStatsOf(self.skin);
 
   // 每根柱子還在不在：ArenaScene 每幀從伺服器狀態更新，預測移動時才知道哪些柱子已經被打壞
   const solid = OBSTACLES.map(() => true);
@@ -62,7 +63,8 @@ async function main() {
     input: netInput,
     // stepEntity 會讀寫的欄位都要列出來，預測才完整（面向、衝刺狀態、衝刺冷卻）
     fields: ["x", "y", "vx", "vy", "faceX", "faceY", "dashTicks", "dashCd"],
-    step: (ctx, predicted, command) => stepEntity(predicted, command, ctx.dt, solid),
+    // 角色的移動速度、衝刺（紅劍士比較快）要和伺服器用同一份數值，預測才不會被拉回
+    step: (ctx, predicted, command) => stepEntity(predicted, command, ctx.dt, solid, moveStats),
   });
 
   setupHud(room);

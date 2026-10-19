@@ -1,4 +1,7 @@
 import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_SPEED, SKILLS, DASH_INDEX, DASH_SLOT } from "./constants.js";
+
+/** 沒傳角色數值時用的預設 */
+const DEFAULT_STATS = { speed: PLAYER_SPEED, dash: SKILLS[DASH_INDEX] };
 import { obstacleHitByBox } from "./obstacles.js";
 
 const clamp = (value, min, max) => (value < min ? min : value > max ? max : value);
@@ -15,9 +18,10 @@ const clamp = (value, min, max) => (value < min ? min : value > max ? max : valu
  * @param {{moveX:number,moveY:number,skill:number}} input moveX/moveY 是方向向量，每軸 -INPUT_SCALE ~ INPUT_SCALE
  * @param {number} dt 秒
  * @param {boolean[]} [solid] 每根柱子還在不在（被打壞的可以穿過去），不傳 = 全部都在
+ * @param {{ speed: number, dash: object }} [stats] 這個角色的移動速度和衝刺技能（constants.js 的 moveStatsOf）
  */
-export function stepEntity(entity, input, dt, solid) {
-  const dash = SKILLS[DASH_INDEX];
+export function stepEntity(entity, input, dt, solid, stats = DEFAULT_STATS) {
+  const { speed, dash } = stats;
   if (entity.dashCd > 0) entity.dashCd--;
 
   // 有在移動就更新面向（技能和衝刺的方向）
@@ -41,8 +45,8 @@ export function stepEntity(entity, input, dt, solid) {
   } else {
     // 只取方向、固定速度（任何角度、鍵盤斜走都一樣快）
     const len = Math.hypot(input.moveX, input.moveY);
-    vx = len ? (input.moveX / len) * PLAYER_SPEED : 0;
-    vy = len ? (input.moveY / len) * PLAYER_SPEED : 0;
+    vx = len ? (input.moveX / len) * speed : 0;
+    vy = len ? (input.moveY / len) * speed : 0;
   }
 
   const x = entity.x + vx * dt;

@@ -115,9 +115,9 @@ export const SKILLS = [
   {
     name: "舉盾",
     type: "guard",       // 一段時間內擋下「從盾牌那一側來的」所有傷害
-    durationTicks: 30,   // 1 秒
+    durationTicks: 60,   // 2 秒
     arcDeg: 150,         // 盾牌擋得到的角度
-    cooldownTicks: 120,  // 4 秒
+    cooldownTicks: 105,  // 3.5 秒（從舉盾開始算）
     energyCost: 20,
   },
   {
@@ -130,6 +130,14 @@ export const SKILLS = [
     damage: 14,          // 6 次全中 = 84
     cooldownTicks: 30,
   },
+  {
+    name: "衝刺",
+    type: "dash",        // 紅劍士的衝刺：和一般衝刺一樣，冷卻比較短（近戰要能拉近距離）
+    speed: 460,
+    ticks: 6,
+    cooldownTicks: 36,   // 1.2 秒
+    invulnerable: true,
+  },
 ];
 
 // 技能編號 = 在 SKILLS 裡的索引（火球、爆炸會記錄是哪個技能放的）
@@ -137,12 +145,12 @@ SKILLS.forEach((skill, id) => (skill.id = id));
 
 /**
  * 每個角色的技能組，順序 = skin 編號。每組 4 格，對應按鈕位置：
- *   0 普攻（右下大顆） 1 技能（左下） 2 衝刺（右上，大家共用） 3 大招（左上）
+ *   0 普攻（右下大顆） 1 技能（左下） 2 衝刺（右上，每個角色都要放 type: "dash" 的技能） 3 大招（左上）
  * 數字是 SKILLS 的索引。綠巫師、金武僧還沒做，先用法師的。
  */
 export const KITS = [
   [0, 1, 2, 3], // 藍法師：火球、爆炎、衝刺、流星雨
-  [4, 5, 2, 6], // 紅劍士：揮砍、舉盾、衝刺、旋風斬
+  [4, 5, 7, 6], // 紅劍士：揮砍、舉盾、衝刺（冷卻較短）、旋風斬
   [0, 1, 2, 3], // 綠巫師
   [0, 1, 2, 3], // 金武僧
 ];
@@ -150,8 +158,26 @@ export const SLOT_COUNT = 4;
 /** 衝刺固定在第 2 格（移動預測 stepEntity 靠這個判斷） */
 export const DASH_SLOT = 2;
 export const ULTIMATE_SLOT = 3;
-/** 衝刺技能本身（大家共用同一個） */
+/** 一般的衝刺技能（音效、無敵判定用；每個角色的衝刺都是無敵） */
 export const DASH_INDEX = KITS[0][DASH_SLOT];
+
+/**
+ * 每個角色的基本數值，順序 = skin 編號。沒寫的用預設（PLAYER_MAX_HP、PLAYER_SPEED）。
+ * 紅劍士是近戰坦克：血比較厚、跑比較快，才追得上邊退邊射的遠程角色。
+ */
+export const SKIN_STATS = [
+  {},                         // 藍法師
+  { maxHp: 150, speed: 150 }, // 紅劍士
+  {},                         // 綠巫師
+  {},                         // 金武僧
+];
+/** 某個角色的血量上限 */
+export const maxHpOf = (skin) => SKIN_STATS[skin]?.maxHp ?? PLAYER_MAX_HP;
+/** 移動用的數值：一般速度和衝刺技能（傳給 stepEntity，伺服器和客戶端預測都用同一份） */
+export const moveStatsOf = (skin) => ({
+  speed: SKIN_STATS[skin]?.speed ?? PLAYER_SPEED,
+  dash: kitSkill(skin, DASH_SLOT),
+});
 
 /** 某個角色第 slot 格的技能（skin 超出範圍時用第一個角色的） */
 export const kitSkill = (skin, slot) => SKILLS[(KITS[skin] ?? KITS[0])[slot]];

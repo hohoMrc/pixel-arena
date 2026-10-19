@@ -5,8 +5,8 @@ import { OBSTACLE_RECTS, obstacleIndexHitByCircle, circleOverlapsRect, obstacleH
 import { BotBrain } from "../bot.js";
 import { blastTarget, aimToward, meteorTargets } from "../../shared/blast.js";
 import {
-  TICK_RATE, ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_MAX_HP,
-  RESPAWN_TICKS, SKILLS, DASH_INDEX, SLOT_COUNT, kitSkill, kitOf, SPAWN_POINTS, MAX_PLAYERS, ROUND, INPUT_SCALE,
+  TICK_RATE, ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, maxHpOf, moveStatsOf,
+  RESPAWN_TICKS, SKILLS, DASH_SLOT, SLOT_COUNT, kitSkill, kitOf, SPAWN_POINTS, MAX_PLAYERS, ROUND, INPUT_SCALE,
   SKIN_COUNT, NAME_MAX_LENGTH, ROOM_CODE_LENGTH, ENERGY, RAGE, OBSTACLES, PILLAR,
 } from "../../shared/constants.js";
 
@@ -117,7 +117,7 @@ export class ArenaRoom extends Room {
       skin,
       x: spawn.x, y: spawn.y, vx: 0, vy: 0,
       faceX: spawn.x < ARENA_WIDTH / 2 ? INPUT_SCALE : -INPUT_SCALE, faceY: 0, ...FRESH_STATUS,
-      hp: PLAYER_MAX_HP, alive: true, kills: 0, deaths: 0, energy: ENERGY.max, rage: 0,
+      hp: maxHpOf(skin), alive: true, kills: 0, deaths: 0, energy: ENERGY.max, rage: 0,
     }));
     this.meta.set(client.sessionId, { spawn, lastCastTick: Array(SLOT_COUNT).fill(-Infinity), respawnTick: 0, energy: ENERGY.max });
     console.log(`[${this.roomId}] ${name} 加入`);
@@ -141,7 +141,7 @@ export class ArenaRoom extends Room {
       skin,
       x: spawn.x, y: spawn.y, vx: 0, vy: 0,
       faceX: spawn.x < ARENA_WIDTH / 2 ? INPUT_SCALE : -INPUT_SCALE, faceY: 0, ...FRESH_STATUS,
-      hp: PLAYER_MAX_HP, alive: true, kills: 0, deaths: 0, energy: ENERGY.max, rage: 0,
+      hp: maxHpOf(skin), alive: true, kills: 0, deaths: 0, energy: ENERGY.max, rage: 0,
     }));
     this.meta.set(id, { spawn, lastCastTick: Array(SLOT_COUNT).fill(-Infinity), respawnTick: 0, energy: ENERGY.max, brain: new BotBrain() });
     console.log(`[${this.roomId}] 加入電腦對手 ${id}`);
@@ -224,7 +224,7 @@ export class ArenaRoom extends Room {
       Object.assign(player, {
         x: meta.spawn.x, y: meta.spawn.y, vx: 0, vy: 0,
         faceX: meta.spawn.x < ARENA_WIDTH / 2 ? INPUT_SCALE : -INPUT_SCALE, faceY: 0, ...FRESH_STATUS,
-        hp: PLAYER_MAX_HP, alive: true, kills: 0, deaths: 0, energy: ENERGY.max, rage: 0,
+        hp: maxHpOf(player.skin), alive: true, kills: 0, deaths: 0, energy: ENERGY.max, rage: 0,
       });
       meta.lastCastTick = Array(SLOT_COUNT).fill(-Infinity);
       meta.energy = ENERGY.max;
@@ -271,7 +271,7 @@ export class ArenaRoom extends Room {
       const brain = this.meta.get(id)?.brain;
       if (brain) {
         const input = canAct(player) ? this.botThink(id, player, brain) : IDLE_INPUT;
-        stepEntity(player, input, ctx.dt, this.solid);
+        stepEntity(player, input, ctx.dt, this.solid, moveStatsOf(player.skin));
         if (input.skill > 0) this.tryCastSkill(id, player, input.skill - 1, input);
         continue;
       }
@@ -281,7 +281,7 @@ export class ArenaRoom extends Room {
       for (const input of channel) {
         // 不能動時當作沒有輸入，但仍要跑 stepEntity（冷卻倒數），才會和客戶端預測一致
         const ok = canAct(player);
-        stepEntity(player, ok ? input : IDLE_INPUT, ctx.dt, this.solid);
+        stepEntity(player, ok ? input : IDLE_INPUT, ctx.dt, this.solid, moveStatsOf(player.skin));
         if (ok && input.skill > 0) this.tryCastSkill(id, player, input.skill - 1, input);
       }
     }
@@ -297,7 +297,7 @@ export class ArenaRoom extends Room {
     for (const [id, player] of this.state.players) {
       const meta = this.meta.get(id);
       if (!player.alive && this.tick >= meta.respawnTick) {
-        Object.assign(player, { x: meta.spawn.x, y: meta.spawn.y, vx: 0, vy: 0, hp: PLAYER_MAX_HP, alive: true, ...FRESH_STATUS });
+        Object.assign(player, { x: meta.spawn.x, y: meta.spawn.y, vx: 0, vy: 0, hp: maxHpOf(player.skin), alive: true, ...FRESH_STATUS });
         meta.energy = ENERGY.max;
       }
       if (player.alive) meta.energy = Math.min(ENERGY.max, meta.energy + regen);
@@ -397,7 +397,7 @@ export class ArenaRoom extends Room {
       const targets = [];
       for (const [id, player] of this.state.players) {
         if (id === b.owner || !player.alive) continue;
-        if (player.dashTicks > 0 && SKILLS[DASH_INDEX]?.invulnerable) continue;
+        if (this.dashInvulnerable(player)) continue;
         if (Math.hypot(player.x - b.x, player.y - b.y) > skill.radius + PLAYER_HALF) continue;
         if (this.blockedByGuard(player, b.x, b.y, skill.damage)) continue;
         targets.push({ id, player });
@@ -482,7 +482,7 @@ export class ArenaRoom extends Room {
     const targets = [];
     for (const [otherId, other] of this.state.players) {
       if (otherId === id || !other.alive) continue;
-      if (other.dashTicks > 0 && SKILLS[DASH_INDEX]?.invulnerable) continue;
+      if (this.dashInvulnerable(other)) continue;
       const dx = other.x - player.x;
       const dy = other.y - player.y;
       // 貼身（重疊）時不管方向都砍得到
@@ -521,7 +521,7 @@ export class ArenaRoom extends Room {
       const targets = [];
       for (const [otherId, other] of this.state.players) {
         if (otherId === id || !other.alive) continue;
-        if (other.dashTicks > 0 && SKILLS[DASH_INDEX]?.invulnerable) continue;
+        if (this.dashInvulnerable(other)) continue;
         if (Math.hypot(other.x - player.x, other.y - player.y) > skill.radius + PLAYER_HALF) continue;
         if (this.blockedByGuard(other, player.x, player.y, skill.damage)) continue;
         targets.push({ id: otherId, player: other });
@@ -577,12 +577,17 @@ export class ArenaRoom extends Room {
     });
   }
 
+  /** 正在衝刺而且衝刺有無敵（看這個角色自己的衝刺技能） */
+  dashInvulnerable(player) {
+    return player.dashTicks > 0 && !!kitSkill(player.skin, DASH_SLOT)?.invulnerable;
+  }
+
   /** 圓形碰撞：找出第一個被打中的敵人 */
   findHit(p) {
     const radius = SKILLS[p.skill].radius;
     for (const [id, player] of this.state.players) {
       if (id === p.owner || !player.alive) continue;
-      if (player.dashTicks > 0 && SKILLS[DASH_INDEX]?.invulnerable) continue; // 衝刺中閃過
+      if (this.dashInvulnerable(player)) continue; // 衝刺中閃過
       if (Math.hypot(player.x - p.x, player.y - p.y) <= PLAYER_HALF + radius) {
         return { id, player };
       }

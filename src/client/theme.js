@@ -81,6 +81,7 @@ export const theme = {
     { cast: "slash", hit: "slash_hit" },   // 揮砍
     { cast: "guard" },                     // 舉盾（擋下時播 block）
     { cast: "whirl", hit: "slash_hit" },   // 旋風斬
+    { cast: "dash" },                      // 紅劍士的衝刺
   ],
   /** 衝刺殘影：每幾毫秒留一個、殘影多久消失 */
   dashTrail: { everyMs: 30, fadeMs: 220, alpha: 0.5 },
@@ -102,11 +103,11 @@ export const theme = {
 
   // 技能按鈕上的圖示（文字或 emoji；之後也可以改成圖片）
   // 索引 = SKILLS 的技能編號
-  skillIcons: ["🔥", "💥", "💨", "☄️", "🗡️", "🛡️", "🌀"],
+  skillIcons: ["🔥", "💥", "💨", "☄️", "🗡️", "🛡️", "🌀", "💨"],
   /** 進場畫面的角色名稱，順序 = skin 編號（數量要和 shared/constants.js 的 SKIN_COUNT 一致） */
   skins: ["藍法師", "紅劍士", "綠巫師", "金武僧"],
   /** 拖曳瞄準時瞄準線的顏色，索引 = SKILLS 的技能編號 */
-  aimGuideColors: [0xff8a3d, 0xff4d2e, 0xffffff, 0xffd23f, 0xffffff, 0x7fd4ff, 0xff6b5c],
+  aimGuideColors: [0xff8a3d, 0xff4d2e, 0xffffff, 0xffd23f, 0xffffff, 0x7fd4ff, 0xff6b5c, 0xffffff],
   /** 近戰技能的畫面效果 */
   meleeFx: {
     slashColor: 0xfff4d6,  // 揮砍刀光
