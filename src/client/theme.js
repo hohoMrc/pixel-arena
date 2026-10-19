@@ -146,7 +146,8 @@ export const theme = {
   /** 近戰技能的畫面效果 */
   meleeFx: {
     slashColor: 0xfff4d6,  // 揮砍刀光
-    slashMs: 140,          // 刀光多久消失
+    slashMs: 140,          // 揮砍的弧形刀光多久消失
+    slashSweepMs: 70,      // 刀光從一邊掃到另一邊要多久
     guardColor: 0x7fd4ff,  // 盾牌
     whirlColor: 0xff6b5c,  // 旋風斬的圈
     whirlSpinMs: 70,       // 旋轉時角色多久翻一次面

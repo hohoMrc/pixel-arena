@@ -581,6 +581,8 @@ export class ArenaRoom extends Room {
       x: Math.round(player.x), y: Math.round(player.y),
       dx: Math.round(dirX * INPUT_SCALE), dy: Math.round(dirY * INPUT_SCALE),
       skill: skill.id, hit: targets.length > 0,
+      // 砍到誰（位置），客戶端在他們身上畫刀光
+      targets: targets.map((t) => [Math.round(t.player.x), Math.round(t.player.y)]),
     });
     for (const t of targets) {
       this.applyDamage(t.id, t.player, id, skill.damage);

@@ -752,18 +752,36 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /** 揮砍：沿著扇形畫一道刀光，很快淡掉 */
-  spawnSwing({ x, y, dx, dy, skill, hit }) {
+  /**
+   * 揮砍：一道新月形的刀光從扇形一邊快速掃到另一邊（外圈紅、中間白），再淡掉。
+   * 砍中的人身上各加一道刀光（和旋風斬一樣）。
+   */
+  spawnSwing({ x, y, dx, dy, skill, hit, targets = [] }) {
     const def = SKILLS[skill];
+    const fx = theme.meleeFx;
     const sounds = theme.skillSounds[skill] ?? {};
     this.playSfx(hit ? sounds.hit : sounds.cast);
     const angle = Math.atan2(dy, dx);
     const half = (def.arcDeg / 2) * (Math.PI / 180);
     const reach = def.range + PLAYER_HALF;
+    const cy = y - 4;
     const g = this.add.graphics().setDepth(997);
-    const color = theme.meleeFx.slashColor;
-    g.fillStyle(color, 0.25).slice(x, y - 4, reach, angle - half, angle + half).fillPath();
-    g.lineStyle(3, color, 0.95).beginPath().arc(x, y - 4, reach - 3, angle - half, angle + half).strokePath();
-    this.tweens.add({ targets: g, alpha: 0, duration: theme.meleeFx.slashMs, onComplete: () => g.destroy() });
+    const sweep = { t: 0 };
+    // 掃過的部分：前端最亮最粗，尾巴漸細（分三段疊出新月形）
+    const draw = () => {
+      g.clear();
+      const end = angle - half + 2 * half * sweep.t;
+      const start = Math.max(angle - half, end - 2 * half * 0.8);
+      g.lineStyle(6, fx.cutColor, 0.5).beginPath().arc(x, cy, reach - 4, start, end).strokePath();
+      g.lineStyle(3, fx.slashColor, 0.95).beginPath().arc(x, cy, reach - 4, start + (end - start) * 0.3, end).strokePath();
+      g.lineStyle(1, 0xffffff, 1).beginPath().arc(x, cy, reach - 2, start + (end - start) * 0.6, end).strokePath();
+    };
+    this.tweens.add({
+      targets: sweep, t: 1, duration: fx.slashSweepMs, ease: "Quad.easeOut",
+      onUpdate: draw,
+      onComplete: () => this.tweens.add({ targets: g, alpha: 0, duration: fx.slashMs, onComplete: () => g.destroy() }),
+    });
+    for (const [tx, ty] of targets) this.spawnCut(tx, ty);
     if (hit) this.cameras.main.shake(60, 0.003);
   }
 
