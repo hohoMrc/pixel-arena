@@ -141,6 +141,20 @@ const SOUNDS = {
     synth({ duration: 0.12, wave: "noise", freq: [600, 2500], decay: 3, lowpass: [0.2, 0.4] }),
     synth({ duration: 0.3, wave: "square", freq: [140, 90], decay: 4, lowpass: [0.3, 0.15], vibrato: 14 }),
   ),
+  // ── 金武僧 ──
+  // 氣功波：往上衝的「咻」
+  qi_shot: () => synth({ duration: 0.2, wave: "square", freq: [400, 1100], decay: 4, lowpass: [0.4, 0.6], noiseMix: 0.15 }),
+  // 氣功波打中：短促的拳擊聲
+  qi_hit: () => synth({ duration: 0.16, wave: "noise", freq: [1200, 250], decay: 7, lowpass: [0.6, 0.15], noiseMix: 0.2 }),
+  // 金鐘罩：「噹」一聲鐘響
+  barrier: () => concat(
+    synth({ duration: 0.02, wave: "noise", freq: [6000, 6000], decay: 1 }),
+    synth({ duration: 0.6, wave: "triangle", freq: [660, 655], decay: 4, vibrato: 6 }),
+  ),
+  // 金鐘罩被打破：碎裂聲
+  barrier_break: () => synth({ duration: 0.35, wave: "noise", freq: [7000, 900], decay: 5, lowpass: [0.8, 0.2] }),
+  // 獅子吼：低沉的吼聲
+  roar: () => synth({ duration: 0.55, wave: "square", freq: [160, 70], attack: 0.03, decay: 3, lowpass: [0.25, 0.08], noiseMix: 0.45, vibrato: 22 }),
 };
 
 /** 正規化音量並寫成 16-bit 單聲道 WAV */

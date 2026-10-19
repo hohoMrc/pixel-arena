@@ -11,7 +11,7 @@ import {
 } from "../../shared/constants.js";
 
 /** 新玩家、復活、新的一局時，技能狀態歸零的欄位 */
-const FRESH_STATUS = { dashTicks: 0, dashCd: 0, guardTicks: 0, whirlTicks: 0, rootTicks: 0, poisonTicks: 0 };
+const FRESH_STATUS = { dashTicks: 0, dashCd: 0, guardTicks: 0, whirlTicks: 0, rootTicks: 0, poisonTicks: 0, barrier: 0, knockTicks: 0, knockX: 0, knockY: 0 };
 
 /** 兩個方向的夾角是否在 arcDeg 的一半以內（方向不用是單位向量） */
 function withinArc(dirX, dirY, toX, toY, arcDeg) {
@@ -77,6 +77,8 @@ export class ArenaRoom extends Room {
   meta = new Map();
   /** 火球到期時間：projectileId → tick */
   projectileExpire = new Map();
+  /** 穿透子彈（氣功波）已經打過誰：projectileId → Set(sessionId)，同一發不會重複打同一個人 */
+  projectileHits = new Map();
   /** 爆炸時間：blastId → tick */
   blastDetonate = new Map();
   /** 毒沼：zoneId → { start, end }（哪個 tick 放的、哪個 tick 消失） */
@@ -240,6 +242,7 @@ export class ArenaRoom extends Room {
   clearProjectiles() {
     this.state.projectiles.clear();
     this.projectileExpire.clear();
+    this.projectileHits.clear();
     this.state.blasts.clear();
     this.blastDetonate.clear();
     this.state.zones.clear();
@@ -354,6 +357,12 @@ export class ArenaRoom extends Room {
       Object.assign(player, { guardTicks: skill.durationTicks, guardX: Math.round(dirX * INPUT_SCALE), guardY: Math.round(dirY * INPUT_SCALE) });
       return;
     }
+    if (skill.type === "barrier") {
+      player.barrier = skill.amount;
+      meta.barrierEnd = this.tick + skill.durationTicks;
+      return;
+    }
+    if (skill.type === "roar") return this.castRoar(id, player, skill);
     if (skill.type === "whirl") {
       player.whirlTicks = skill.durationTicks;
       meta.whirlSkill = skill;
@@ -509,21 +518,29 @@ export class ArenaRoom extends Room {
       const pillarIndex = obstacleIndexHitByCircle(p.x, p.y, SKILLS[p.skill].radius, this.solid);
       const blocked = pillarIndex >= 0;
       const expired = this.tick >= this.projectileExpire.get(projectileId);
-      let target = blocked ? null : this.findHit(p);
+      const skill = SKILLS[p.skill];
+      let target = blocked ? null : this.findHit(p, this.projectileHits.get(projectileId));
       if (blocked) this.damagePillar(pillarIndex, SKILLS[p.skill].damage, p.owner);
       // 從盾牌那一側飛來的火球：擋掉（往回推一步當作來的方向）
       const shielded = target && this.blockedByGuard(target.player, p.x - p.vx, p.y - p.vy, SKILLS[p.skill].damage);
       if (shielded) target = null;
 
-      if (target || blocked || shielded || outOfArena || expired) {
+      // 穿透子彈打中人不會消失，記下打過誰，繼續往前飛
+      const pierced = target && skill.pierce;
+      if (pierced) {
+        if (!this.projectileHits.has(projectileId)) this.projectileHits.set(projectileId, new Set());
+        this.projectileHits.get(projectileId).add(target.id);
+        this.broadcast("impact", { x: Math.round(target.player.x), y: Math.round(target.player.y), skill: p.skill, hit: true });
+      }
+      if ((target && !pierced) || blocked || shielded || outOfArena || expired) {
         // 通知所有人播特效：hit = 打中人（爆炸），否則是撞牆或時間到（冒煙）
         this.broadcast("impact", { x: Math.round(p.x), y: Math.round(p.y), skill: p.skill, hit: !!target });
         this.state.projectiles.delete(projectileId);
         this.projectileExpire.delete(projectileId);
+        this.projectileHits.delete(projectileId);
       }
       // 扣血放在刪除之後：致勝一擊會清空所有火球
       if (target) {
-        const skill = SKILLS[p.skill];
         // 毒液彈：中毒（再中一次重新計時）
         if (skill.poison) {
           target.player.poisonTicks = skill.poison.ticks;
@@ -571,12 +588,51 @@ export class ArenaRoom extends Room {
     }
   }
 
+  /**
+   * 獅子吼：周圍的敵人受傷並往外震飛（撞到牆、柱子會停），附近敵人的子彈直接震散。
+   * 舉盾朝著武僧的人擋得住（不受傷也不會被震飛）。
+   */
+  castRoar(id, player, skill) {
+    const reach = skill.radius + PLAYER_HALF;
+    this.broadcast("roar", { x: Math.round(player.x), y: Math.round(player.y), skill: skill.id });
+    for (const [projectileId, p] of this.state.projectiles) {
+      if (p.owner === id || Math.hypot(p.x - player.x, p.y - player.y) > reach) continue;
+      this.broadcast("impact", { x: Math.round(p.x), y: Math.round(p.y), skill: p.skill, hit: false });
+      this.state.projectiles.delete(projectileId);
+      this.projectileExpire.delete(projectileId);
+      this.projectileHits.delete(projectileId);
+    }
+    OBSTACLE_RECTS.forEach((r, i) => {
+      if (this.solid[i] && circleOverlapsRect(player.x, player.y, skill.radius, r)) this.damagePillar(i, skill.damage, id);
+    });
+    const targets = [];
+    for (const [otherId, other] of this.state.players) {
+      if (otherId === id || !other.alive || this.dashInvulnerable(other)) continue;
+      const dx = other.x - player.x;
+      const dy = other.y - player.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > reach || this.blockedByGuard(other, player.x, player.y, skill.damage)) continue;
+      // 疊在一起時往武僧面向的方向震
+      const [nx, ny] = dist > 0.01 ? [dx / dist, dy / dist] : [player.faceX / INPUT_SCALE, player.faceY / INPUT_SCALE];
+      Object.assign(other, {
+        knockTicks: skill.knockTicks, dashTicks: 0,
+        knockX: Math.round(nx * skill.knockSpeed), knockY: Math.round(ny * skill.knockSpeed),
+      });
+      targets.push({ id: otherId, player: other });
+    }
+    for (const t of targets) {
+      this.applyDamage(t.id, t.player, id, skill.damage);
+      if (this.state.phase === "ended") return;
+    }
+  }
+
   /** 每個 tick：盾牌倒數；旋風斬每 hitEveryTicks 砍一次周圍的人（剛放的那一下就會砍） */
   updateStatuses() {
     this.updateZoneDamage();
     if (this.state.phase === "ended") return;
     for (const [id, player] of this.state.players) {
       if (player.guardTicks > 0) player.guardTicks--;
+      if (player.barrier > 0 && this.tick >= (this.meta.get(id)?.barrierEnd ?? 0)) player.barrier = 0; // 金鐘罩時間到
       // 中毒：每 everyTicks 扣一次血（算施毒者的傷害，毒死也算他的擊殺）
       if (player.poisonTicks > 0 && player.alive) {
         player.poisonTicks--;
@@ -656,11 +712,11 @@ export class ArenaRoom extends Room {
     return player.dashTicks > 0 && !!kitSkill(player.skin, DASH_SLOT)?.invulnerable;
   }
 
-  /** 圓形碰撞：找出第一個被打中的敵人 */
-  findHit(p) {
+  /** 圓形碰撞：找出第一個被打中的敵人（skip = 這發已經打過的人，穿透子彈用） */
+  findHit(p, skip) {
     const radius = SKILLS[p.skill].radius;
     for (const [id, player] of this.state.players) {
-      if (id === p.owner || !player.alive) continue;
+      if (id === p.owner || !player.alive || skip?.has(id)) continue;
       if (this.dashInvulnerable(player)) continue; // 衝刺中閃過
       if (Math.hypot(player.x - p.x, player.y - p.y) <= PLAYER_HALF + radius) {
         return { id, player };
@@ -670,8 +726,16 @@ export class ArenaRoom extends Room {
   }
 
   applyDamage(targetId, target, attackerId, damage) {
-    const dealt = Math.min(target.hp, damage);
-    target.hp -= dealt;
+    // 金鐘罩：先扣護盾。被護盾吸收的也算「打到」，雙方照樣累積怒氣
+    let absorbed = 0;
+    if (target.barrier > 0) {
+      absorbed = Math.min(target.barrier, damage);
+      target.barrier -= absorbed;
+      this.broadcast("barrier", { x: Math.round(target.x), y: Math.round(target.y), broke: target.barrier === 0 });
+    }
+    const hpLoss = Math.min(target.hp, damage - absorbed);
+    target.hp -= hpLoss;
+    const dealt = hpLoss + absorbed;
     // 怒氣：被打的人和打人的人都會累積
     target.rage = Math.min(RAGE.max, target.rage + dealt * RAGE.perDamageTaken);
     const source = this.state.players.get(attackerId);
@@ -679,7 +743,7 @@ export class ArenaRoom extends Room {
     if (target.hp > 0) return;
 
     target.alive = false;
-    Object.assign(target, { dashTicks: 0, guardTicks: 0, whirlTicks: 0, rootTicks: 0, poisonTicks: 0 });
+    Object.assign(target, { dashTicks: 0, guardTicks: 0, whirlTicks: 0, rootTicks: 0, poisonTicks: 0, barrier: 0, knockTicks: 0 });
     this.meta.get(targetId).respawnTick = this.tick + RESPAWN_TICKS;
 
     // 只有正式對戰中才計分（等待中的練習不算）

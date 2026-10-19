@@ -23,6 +23,7 @@ export const theme = {
     fireball:    { path: "assets/fireball.png",    size: [17, 11], color: 0xff8a3d },
     bigfireball: { path: "assets/bigfireball.png", size: [39, 23], color: 0xff4d2e },
     poisonball:  { path: "assets/poisonball.png",  size: [17, 11], color: 0x6dff5c }, // 火球轉成綠色
+    qiball:      { path: "assets/qiball.png",      size: [17, 11], color: 0xffd23f }, // 火球轉成金色
     // 角色外觀（skin 0~3），玩家在進場畫面選。32×40，面朝右，腳貼齊圖片底部
     player0:     { path: "assets/player0.png",     size: [32, 40], color: 0x4fa3ff },
     player1:     { path: "assets/player1.png",     size: [32, 40], color: 0xff5c7a },
@@ -46,6 +47,7 @@ export const theme = {
     // 技能命中特效：5 格（閃光 → 火球 → 爆炸 → 碎煙 → 淡出），每格 40×40
     explosion:    { path: "assets/explosion.png",    sheet: [40, 40] },
     explosion_poison: { path: "assets/explosion_poison.png", sheet: [40, 40] }, // 綠色版爆炸（毒系技能）
+    explosion_qi:     { path: "assets/explosion_qi.png",     sheet: [40, 40] }, // 金色版爆炸（金武僧）
   },
 
   /**
@@ -77,6 +79,11 @@ export const theme = {
     poison_hit:       "assets/sfx/poison_hit.wav",
     swamp:            "assets/sfx/swamp.wav",
     vine:             "assets/sfx/vine.wav",
+    qi_shot:          "assets/sfx/qi_shot.wav",
+    qi_hit:           "assets/sfx/qi_hit.wav",
+    barrier:          "assets/sfx/barrier.wav",
+    barrier_break:    "assets/sfx/barrier_break.wav",
+    roar:             "assets/sfx/roar.wav",
   },
   /** 每個技能（索引 = SKILLS 的技能編號）施放和命中時播哪個音效 */
   skillSounds: [
@@ -91,9 +98,12 @@ export const theme = {
     { cast: "poison_shot", hit: "poison_hit" }, // 毒液彈
     { cast: "swamp" },                          // 毒沼
     { cast: "swamp", hit: "vine" },             // 藤蔓（預告時、定身時）
+    { cast: "qi_shot", hit: "qi_hit" },         // 氣功波
+    { cast: "barrier", hit: "block" },          // 金鐘罩（吸收傷害時播 hit，被打破播 barrier_break）
+    { cast: "roar", hit: "qi_hit" },            // 獅子吼
   ],
   /** 命中特效用哪張爆炸圖（沒寫 = explosion），索引 = 技能編號 */
-  impactTextures: { 8: "explosion_poison", 10: "explosion_poison" },
+  impactTextures: { 8: "explosion_poison", 10: "explosion_poison", 11: "explosion_qi", 13: "explosion_qi" },
   /** 指定地點技能預告圈的顏色（沒寫 = 紅色），索引 = 技能編號 */
   targetColors: { 9: 0x6dff5c, 10: 0x3fbf4a },
   /** 綠巫師的狀態效果 */
@@ -101,6 +111,12 @@ export const theme = {
     swampColor: 0x5fd35a,   // 毒沼
     vineColor: 0x3fbf4a,    // 被定身時腳邊的藤蔓
     poisonTint: 0x9dff8a,   // 中毒時角色染綠（MULTIPLY）
+  },
+  /** 金武僧的效果 */
+  monkFx: {
+    barrierColor: 0xffd23f, // 金鐘罩
+    roarColor: 0xffe28a,    // 獅子吼的震波
+    roarMs: 300,            // 震波擴散多久
   },
   /** 衝刺殘影：每幾毫秒留一個、殘影多久消失 */
   dashTrail: { everyMs: 30, fadeMs: 220, alpha: 0.5 },
@@ -122,11 +138,11 @@ export const theme = {
 
   // 技能按鈕上的圖示（文字或 emoji；之後也可以改成圖片）
   // 索引 = SKILLS 的技能編號
-  skillIcons: ["🔥", "💥", "💨", "☄️", "🗡️", "🛡️", "🌀", "💨", "🧪", "☠️", "🌿"],
+  skillIcons: ["🔥", "💥", "💨", "☄️", "🗡️", "🛡️", "🌀", "💨", "🧪", "☠️", "🌿", "🌟", "🔔", "🦁"],
   /** 進場畫面的角色名稱，順序 = skin 編號（數量要和 shared/constants.js 的 SKIN_COUNT 一致） */
   skins: ["藍法師", "紅劍士", "綠巫師", "金武僧"],
   /** 拖曳瞄準時瞄準線的顏色，索引 = SKILLS 的技能編號 */
-  aimGuideColors: [0xff8a3d, 0xff4d2e, 0xffffff, 0xffd23f, 0xffffff, 0x7fd4ff, 0xff6b5c, 0xffffff, 0x9dff8a, 0x6dff5c, 0x3fbf4a],
+  aimGuideColors: [0xff8a3d, 0xff4d2e, 0xffffff, 0xffd23f, 0xffffff, 0x7fd4ff, 0xff6b5c, 0xffffff, 0x9dff8a, 0x6dff5c, 0x3fbf4a, 0xffd23f, 0xffd23f, 0xffe28a],
   /** 近戰技能的畫面效果 */
   meleeFx: {
     slashColor: 0xfff4d6,  // 揮砍刀光

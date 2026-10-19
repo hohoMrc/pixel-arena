@@ -63,8 +63,8 @@ async function main() {
   // 自己的角色：先在本地預測移動（手感即時），伺服器結果回來再修正
   predict.reconciler(self, {
     input: netInput,
-    // stepEntity 會讀寫的欄位都要列出來，預測才完整（面向、衝刺狀態、衝刺冷卻、定身）
-    fields: ["x", "y", "vx", "vy", "faceX", "faceY", "dashTicks", "dashCd", "rootTicks"],
+    // stepEntity 會讀寫的欄位都要列出來，預測才完整（面向、衝刺狀態、衝刺冷卻、定身、被擊退）
+    fields: ["x", "y", "vx", "vy", "faceX", "faceY", "dashTicks", "dashCd", "rootTicks", "knockTicks", "knockX", "knockY"],
     // 角色的移動速度、衝刺（紅劍士比較快）、毒沼緩速要和伺服器用同一份數值，預測才不會被拉回
     step: (ctx, predicted, command) => stepEntity(predicted, command, ctx.dt, solid, moveStats, slowZones),
   });

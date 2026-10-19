@@ -22,7 +22,7 @@ const clamp = (value, min, max) => (value < min ? min : value > max ? max : valu
  * @param {{ speed: number, dash: object }} [stats] 這個角色的移動速度和衝刺技能（constants.js 的 moveStatsOf）
  * @param {{ x: number, y: number, radius: number, slowFactor: number }[]} [slowZones] 會讓這個角色變慢的區域（別人的毒沼）
  *
- * 定身（rootTicks）也在這裡倒數，和 dashCd 一樣跟著輸入走，預測重播時才會和伺服器一致。
+ * 定身（rootTicks）、被擊退（knockTicks）也在這裡倒數，和 dashCd 一樣跟著輸入走，預測重播時才會和伺服器一致。
  */
 export function stepEntity(entity, input, dt, solid, stats = DEFAULT_STATS, slowZones = NO_ZONES) {
   const { dash } = stats;
@@ -45,13 +45,19 @@ export function stepEntity(entity, input, dt, solid, stats = DEFAULT_STATS, slow
   }
 
   // 開始衝刺：方向 = 面向（有推搖桿時就是推的方向）
-  if (dash && !rooted && input.skill === DASH_SLOT + 1 && entity.dashCd === 0 && entity.dashTicks === 0) {
+  if (dash && !rooted && !(entity.knockTicks > 0) && input.skill === DASH_SLOT + 1 && entity.dashCd === 0 && entity.dashTicks === 0) {
     entity.dashTicks = dash.ticks;
     entity.dashCd = dash.cooldownTicks;
   }
 
   let vx, vy;
-  if (entity.dashTicks > 0) {
+  if (entity.knockTicks > 0) {
+    // 被擊退：照伺服器給的速度飛出去，這段時間不能控制（也會打斷衝刺）
+    entity.knockTicks--;
+    entity.dashTicks = 0;
+    vx = entity.knockX;
+    vy = entity.knockY;
+  } else if (entity.dashTicks > 0) {
     entity.dashTicks--;
     const len = Math.hypot(entity.faceX, entity.faceY) || 1;
     vx = (entity.faceX / len) * dash.speed;

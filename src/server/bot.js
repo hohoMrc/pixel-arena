@@ -17,6 +17,7 @@ export const BOT_CONFIG = {
   dodgeLookAheadSec: 0.4,        // 火球多久內會打到才閃
   strafeSwitchTicks: [30, 75],   // 繞圈方向多久換一次
   wallMargin: 40,                // 離牆多近就往中間推
+  midDistance: [70, 130],        // 中距離角色（子彈射程短，例如金武僧）想保持的距離
   // 近戰角色（紅劍士）
   meleeDistance: [0, 30],        // 近戰想貼多近
   guardChance: 0.5,              // 看到攻擊來時舉盾的機率（盾牌冷卻好才會舉）
@@ -75,9 +76,13 @@ export class BotBrain {
     // 這隻電腦的技能組：每種技能在第幾格（沒有就是 -1）
     const kit = kitOf(player.skin);
     const slotOf = (type) => kit.findIndex((s) => s.type === type);
-    const guardSlot = slotOf("guard");
+    const guardSlot = slotOf("guard") >= 0 ? slotOf("guard") : slotOf("barrier");
     const melee = slotOf("slash") >= 0;
-    // 有盾牌、冷卻好了：朝攻擊來的方向舉盾（取代閃避）
+    // 子彈射程（決定要保持多遠）
+    const shot = kit.find((s) => !s.type);
+    const shotRange = shot ? shot.speed * (shot.lifetimeTicks / TICK_RATE) : 0;
+    const distance = melee ? BOT_CONFIG.meleeDistance : shotRange < 280 ? BOT_CONFIG.midDistance : BOT_CONFIG.preferredDistance;
+    // 有盾牌（舉盾、金鐘罩）、冷卻好了：朝攻擊來的方向舉盾（取代閃避）
     const tryGuard = (fromX, fromY) => {
       if (guardSlot < 0 || !canCast(guardSlot) || Math.random() > BOT_CONFIG.guardChance) return false;
       const aim = toInput(fromX - player.x, fromY - player.y);
@@ -117,7 +122,7 @@ export class BotBrain {
     let move;
     if (this.dodge) move = { x: this.dodge.x, y: this.dodge.y };
     else if (tick < this.unstickUntil) move = this.unstickDir;
-    else move = this.chooseMove(player, target, tick, melee ? BOT_CONFIG.meleeDistance : BOT_CONFIG.preferredDistance);
+    else move = this.chooseMove(player, target, tick, distance);
     input.moveX = move.x;
     input.moveY = move.y;
 
@@ -242,8 +247,8 @@ export class BotBrain {
         const aim = aimToward(player.x, player.y, target.x + target.vx * fuse, target.y + target.vy * fuse, ult);
         return { skill: ULTIMATE_SLOT + 1, aimX: aim.x, aimY: aim.y };
       }
-      // 旋風斬：貼近了才轉
-      if (ult.type === "whirl" && dist < ult.radius + PLAYER_HALF - 6) return { skill: ULTIMATE_SLOT + 1, aimX: 0, aimY: 0 };
+      // 旋風斬、獅子吼：貼近了才放
+      if ((ult.type === "whirl" || ult.type === "roar") && dist < ult.radius + PLAYER_HALF - 6) return { skill: ULTIMATE_SLOT + 1, aimX: 0, aimY: 0 };
     }
 
     // 爆炎、毒沼：目標在射程內就丟，落點預判對手爆炸時（毒沼是幾個 tick 後）會走到哪

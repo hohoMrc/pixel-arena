@@ -29,6 +29,10 @@ export const Player = schema({
   whirlTicks: t.uint8(), // 旋風斬剩下幾個 tick
   rootTicks: t.uint8(),  // 被定身剩下幾個 tick（藤蔓），stepEntity 會倒數
   poisonTicks: t.uint8(), // 中毒剩下幾個 tick（毒液彈），客戶端用來把角色染綠
+  barrier: t.uint8(),      // 金鐘罩還能吸收多少傷害（0 = 沒有）
+  knockTicks: t.uint8(),   // 被擊退剩下幾個 tick（獅子吼），stepEntity 會倒數
+  knockX: t.int16(),       // 被擊退的速度（單位／秒）
+  knockY: t.int16(),
   hp: t.uint8(),
   energy: t.uint8(), // 能量（伺服器內部用小數累積，這裡同步整數）
   rage: t.uint8(),   // 怒氣，集滿 RAGE.max 可以放大招

@@ -175,6 +175,38 @@ export const SKILLS = [
     rootTicks: 45,       // 定身 1.5 秒
     cooldownTicks: 30,
   },
+
+  // ── 金武僧 ──
+  {
+    name: "氣功波",      // 直線飛行的子彈，會穿透敵人（一排人都打得到，每人只算一次）
+    texture: "qiball",
+    impactScale: 1,
+    pierce: true,
+    speed: 260,
+    radius: 6,
+    damage: 16,
+    cooldownTicks: 18,   // 0.6 秒
+    energyCost: 9,
+    lifetimeTicks: 30,   // 射程約 260（中距離）
+  },
+  {
+    name: "金鐘罩",
+    type: "barrier",     // 護盾：先扣護盾再扣血，時間到或被打破就消失
+    amount: 40,          // 可以吸收多少傷害
+    durationTicks: 90,   // 3 秒
+    cooldownTicks: 180,  // 6 秒（從施放開始算，包含護盾存在的 3 秒）
+    energyCost: 25,
+  },
+  {
+    name: "獅子吼",
+    type: "roar",        // 以自己為中心震開周圍的敵人，順便震散附近敵人的子彈
+    ultimate: true,
+    radius: 70,
+    damage: 25,
+    knockSpeed: 360,     // 被震飛的速度（單位／秒）
+    knockTicks: 8,       // 飛多久（約 96 單位）；撞到牆或柱子會停
+    cooldownTicks: 30,
+  },
 ];
 
 /** 指定地點的技能（拖曳時拖越遠丟越遠，落點用 shared/blast.js 算） */
@@ -186,13 +218,13 @@ SKILLS.forEach((skill, id) => (skill.id = id));
 /**
  * 每個角色的技能組，順序 = skin 編號。每組 4 格，對應按鈕位置：
  *   0 普攻（右下大顆） 1 技能（左下） 2 衝刺（右上，每個角色都要放 type: "dash" 的技能） 3 大招（左上）
- * 數字是 SKILLS 的索引。金武僧還沒做，先用法師的。
+ * 數字是 SKILLS 的索引。
  */
 export const KITS = [
   [0, 1, 2, 3], // 藍法師：火球、爆炎、衝刺、流星雨
   [4, 5, 7, 6], // 紅劍士：揮砍、舉盾、衝刺（冷卻較短）、旋風斬
   [8, 9, 2, 10], // 綠巫師：毒液彈、毒沼、衝刺、藤蔓
-  [0, 1, 2, 3], // 金武僧
+  [11, 12, 2, 13], // 金武僧：氣功波、金鐘罩、衝刺、獅子吼
 ];
 export const SLOT_COUNT = 4;
 /** 衝刺固定在第 2 格（移動預測 stepEntity 靠這個判斷） */
@@ -209,7 +241,7 @@ export const SKIN_STATS = [
   {},                         // 藍法師
   { maxHp: 150, speed: 150 }, // 紅劍士
   {},                         // 綠巫師
-  {},                         // 金武僧
+  { maxHp: 120 },             // 金武僧：中距離，比法師耐打一點
 ];
 /** 某個角色的血量上限 */
 export const maxHpOf = (skin) => SKIN_STATS[skin]?.maxHp ?? PLAYER_MAX_HP;

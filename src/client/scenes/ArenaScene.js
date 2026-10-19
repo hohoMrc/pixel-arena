@@ -197,6 +197,8 @@ export class ArenaScene extends Phaser.Scene {
     this.room.onMessage("impact", (impact) => this.spawnImpact(impact));
     this.room.onMessage("swing", (swing) => this.spawnSwing(swing));
     this.room.onMessage("block", (block) => this.spawnBlock(block));
+    this.room.onMessage("barrier", (hit) => this.spawnBarrierHit(hit));
+    this.room.onMessage("roar", (roar) => this.spawnRoar(roar));
     this.roundOverlay = new RoundOverlay(document.getElementById("overlay"), this.room, (key) => this.playSfx(key));
   }
 
@@ -267,6 +269,7 @@ export class ArenaScene extends Phaser.Scene {
       this.updateDash(view, player, isSelf, now);
       this.updateMelee(view, player, x, y, isSelf, now);
       this.drawRoot(player, x, y, now);
+      this.drawBarrier(view, player, x, y, isSelf, now);
       view.label.setPosition(Math.round(x), headY - 4).setDepth(feetY + 0.5);
       view.shadow.setPosition(Math.round(x), feetY).setAlpha(player.alive ? SHADOW.player.alpha : SHADOW.player.alpha * 0.4);
 
@@ -338,9 +341,13 @@ export class ArenaScene extends Phaser.Scene {
       this.aimGuide.lineStyle(1, color, AIM_GUIDE.alpha).slice(x, y, reach, angle - half, angle + half).strokePath();
       return;
     }
-    if (skill.type === "whirl") {
+    if (skill.type === "whirl" || skill.type === "roar") {
       this.aimGuide.lineStyle(1, color, AIM_GUIDE.alpha).strokeCircle(x, y, skill.radius + PLAYER_HALF);
       this.aimGuide.fillStyle(color, 0.12).fillCircle(x, y, skill.radius + PLAYER_HALF);
+      return;
+    }
+    if (skill.type === "barrier") {
+      this.aimGuide.lineStyle(1, color, AIM_GUIDE.alpha).strokeCircle(x, y - 4, PLAYER_HALF + 9);
       return;
     }
 
@@ -664,6 +671,52 @@ export class ArenaScene extends Phaser.Scene {
       this.statusFx.strokePath();
     }
     this.statusFx.lineStyle(1, fx.vineColor, 0.6).strokeEllipse(cx, feetY, 26, 8);
+  }
+
+  /** 金鐘罩：身體外面一圈金色的罩子，越被打越淡；出現時「噹」一聲 */
+  drawBarrier(view, player, x, y, isSelf, now) {
+    const on = player.barrier > 0 && player.alive;
+    if (on && !view.hadBarrier) this.playSfx("barrier", isSelf ? 1 : theme.othersVolume);
+    view.hadBarrier = on;
+    if (!on) return;
+    const skill = SKILLS.find((s) => s.type === "barrier");
+    const left = player.barrier / skill.amount;
+    const cx = Math.round(x);
+    const cy = Math.round(y) - 4;
+    const r = PLAYER_HALF + 9 + Math.sin(now / 120); // 微微脈動
+    const color = theme.monkFx.barrierColor;
+    this.statusFx.fillStyle(color, 0.08 + 0.12 * left).fillCircle(cx, cy, r);
+    this.statusFx.lineStyle(2, color, 0.35 + 0.55 * left).strokeCircle(cx, cy, r);
+  }
+
+  /** 金鐘罩吸收傷害：罩子閃一下；被打破時播碎裂聲 */
+  spawnBarrierHit({ x, y, broke }) {
+    this.playSfx(broke ? "barrier_break" : "block", broke ? 1 : 0.5);
+    const g = this.add.graphics().setDepth(1001);
+    g.lineStyle(3, broke ? 0xffffff : theme.monkFx.barrierColor, 1).strokeCircle(x, y - 4, PLAYER_HALF + 9);
+    this.tweens.add({ targets: g, alpha: 0, duration: broke ? 300 : 150, onComplete: () => g.destroy() });
+  }
+
+  /** 獅子吼：從武僧身上擴散出一圈震波 */
+  spawnRoar({ x, y, skill }) {
+    const def = SKILLS[skill];
+    const fx = theme.monkFx;
+    this.playSfx(theme.skillSounds[skill]?.cast);
+    this.cameras.main.shake(180, 0.008);
+    const reach = def.radius + PLAYER_HALF;
+    const ring = { r: PLAYER_HALF };
+    const g = this.add.graphics().setDepth(997);
+    this.tweens.add({
+      targets: ring, r: reach, duration: fx.roarMs, ease: "Cubic.easeOut",
+      onUpdate: (tween) => {
+        const t = tween.progress;
+        g.clear();
+        g.fillStyle(fx.roarColor, 0.18 * (1 - t)).fillCircle(x, y, ring.r);
+        g.lineStyle(3, fx.roarColor, 1 - t).strokeCircle(x, y, ring.r);
+        g.lineStyle(1, 0xffffff, 0.8 * (1 - t)).strokeCircle(x, y, ring.r * 0.7);
+      },
+      onComplete: () => g.destroy(),
+    });
   }
 
   /** 揮砍：沿著扇形畫一道刀光，很快淡掉 */
