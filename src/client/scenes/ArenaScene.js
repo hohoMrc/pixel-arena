@@ -555,6 +555,7 @@ export class ArenaScene extends Phaser.Scene {
   spawnImpact({ x, y, skill, hit, area }) {
     const big = hit || area;
     this.playSfx(big ? theme.skillSounds[skill]?.hit : "fizzle", big ? 1 : 0.5);
+    if (hit && theme.meleeFx.cutSkills?.includes(skill)) return this.spawnCut(x, y);
     if (area) this.cameras.main.shake(100, 0.004);
     const tex = theme.impactTextures?.[skill] ?? "explosion";
     const key = `${big ? "impact-hit" : "impact-miss"}-${tex}`;
@@ -717,6 +718,37 @@ export class ArenaScene extends Phaser.Scene {
       },
       onComplete: () => g.destroy(),
     });
+  }
+
+  /**
+   * 刀光：一道斜斜的白色劈痕（外圈紅色），先快速拉長再淡掉，旁邊噴幾顆火花。
+   * 角度每次隨機，連續砍中時看起來像亂刀。
+   */
+  spawnCut(x, y) {
+    const fx = theme.meleeFx;
+    const angle = (Math.random() * 0.8 + 0.2) * Math.PI * (Math.random() < 0.5 ? 1 : -1);
+    const half = fx.cutLength / 2;
+    const dx = Math.cos(angle) * half;
+    const dy = Math.sin(angle) * half;
+    // 畫在 (0,0) 附近再移到目標身上，縮放時才會以中心為基準
+    const g = this.add.graphics({ x, y: y - 6 }).setDepth(1001);
+    g.lineStyle(5, fx.cutColor, 0.9).lineBetween(-dx, -dy, dx, dy);
+    g.lineStyle(2, 0xffffff, 1).lineBetween(-dx * 0.9, -dy * 0.9, dx * 0.9, dy * 0.9);
+    g.setScale(0.3);
+    this.tweens.add({ targets: g, scale: 1.1, duration: 60, ease: "Quad.easeOut" });
+    this.tweens.add({ targets: g, alpha: 0, delay: 60, duration: fx.cutMs - 60, onComplete: () => g.destroy() });
+    // 火花：往刀痕的垂直方向噴
+    for (let k = 0; k < 3; k++) {
+      const side = k % 2 ? 1 : -1;
+      const spread = angle + side * (Math.PI / 2) + (Math.random() - 0.5) * 0.8;
+      const spark = this.add.rectangle(x, y - 6, 2, 2, 0xfff4d6).setDepth(1001);
+      this.tweens.add({
+        targets: spark,
+        x: x + Math.cos(spread) * (8 + Math.random() * 8),
+        y: y - 6 + Math.sin(spread) * (8 + Math.random() * 8),
+        alpha: 0, duration: fx.cutMs, onComplete: () => spark.destroy(),
+      });
+    }
   }
 
   /** 揮砍：沿著扇形畫一道刀光，很快淡掉 */
