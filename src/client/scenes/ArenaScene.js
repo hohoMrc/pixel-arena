@@ -530,12 +530,13 @@ export class ArenaScene extends Phaser.Scene {
     navigator.vibrate?.(died ? HIT_FEEDBACK.deathVibrateMs : HIT_FEEDBACK.vibrateMs);
   }
 
-  /** 受擊閃白優先，其次中毒染綠，都沒有就原色（狀態變了才改，不每幀重設） */
+  /** 受擊閃白優先，其次獅子吼的金光、中毒染綠，都沒有就原色（狀態變了才改，不每幀重設） */
   updateFlash(view, now, poisoned = false) {
-    const state = now < view.flashUntil ? "flash" : poisoned ? "poison" : "none";
+    const state = now < view.flashUntil ? "flash" : now < (view.roarUntil ?? 0) ? "roar" : poisoned ? "poison" : "none";
     if (state === view.tintState) return;
     view.tintState = state;
     if (state === "flash") view.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
+    else if (state === "roar") view.sprite.setTint(theme.monkFx.roarColor).setTintMode(Phaser.TintModes.FILL);
     else if (state === "poison") view.sprite.setTint(theme.witchFx.poisonTint).setTintMode(Phaser.TintModes.MULTIPLY);
     else view.sprite.clearTint();
   }
@@ -580,14 +581,17 @@ export class ArenaScene extends Phaser.Scene {
     }
     view.wasDashing = dashing;
 
-    if (dashing && now >= view.nextTrailAt) {
-      const { everyMs, fadeMs, alpha } = theme.dashTrail;
-      view.nextTrailAt = now + everyMs;
+    // 被獅子吼震飛時也留殘影（金色），看得出是被打飛的
+    const knockTicks = isSelf ? this.predict.value(player, "knockTicks") : player.knockTicks;
+    const knocked = knockTicks > 0 && player.alive;
+    const trail = knocked ? theme.monkFx.knockTrail : dashing ? { ...theme.dashTrail, tint: 0x9fdcff } : null;
+    if (trail && now >= view.nextTrailAt) {
+      view.nextTrailAt = now + trail.everyMs;
       const s = view.sprite;
       const ghost = this.add.image(s.x, s.y, s.texture.key, s.frame.name)
-        .setOrigin(0.5, 1).setFlipX(s.flipX).setDepth(s.depth - 0.1).setAlpha(alpha)
-        .setTint(0x9fdcff).setTintMode(Phaser.TintModes.FILL);
-      this.tweens.add({ targets: ghost, alpha: 0, duration: fadeMs, onComplete: () => ghost.destroy() });
+        .setOrigin(0.5, 1).setFlipX(s.flipX).setDepth(s.depth - 0.1).setAlpha(trail.alpha)
+        .setTint(trail.tint).setTintMode(Phaser.TintModes.FILL);
+      this.tweens.add({ targets: ghost, alpha: 0, duration: trail.fadeMs, onComplete: () => ghost.destroy() });
     }
   }
 
@@ -698,26 +702,76 @@ export class ArenaScene extends Phaser.Scene {
     this.tweens.add({ targets: g, alpha: 0, duration: broke ? 300 : 150, onComplete: () => g.destroy() });
   }
 
-  /** 獅子吼：從武僧身上擴散出一圈震波 */
-  spawnRoar({ x, y, skill }) {
+  /**
+   * 獅子吼：
+   *   武僧閃金光、身體一縮一放（蓄力再吼出來）
+   *   三圈震波接連擴散，加上往外噴的速度線和地上揚起的塵土
+   *   被震到的人身上爆出金色衝擊
+   */
+  spawnRoar({ x, y, skill, owner, targets = [] }) {
     const def = SKILLS[skill];
     const fx = theme.monkFx;
     this.playSfx(theme.skillSounds[skill]?.cast);
-    this.cameras.main.shake(180, 0.008);
+    this.cameras.main.shake(220, 0.01);
+    this.cameras.main.flash(120, 255, 226, 138);
     const reach = def.radius + PLAYER_HALF;
-    const ring = { r: PLAYER_HALF };
-    const g = this.add.graphics().setDepth(997);
+
+    // 武僧本人：閃金光＋縮放
+    const view = this.playerViews.get(owner);
+    if (view) {
+      view.roarUntil = performance.now() + 180; // updateFlash 會在這段時間染成金色
+      this.tweens.add({ targets: view.sprite, scaleX: 1.25, scaleY: 0.85, duration: 70, yoyo: true, ease: "Quad.easeOut" });
+    }
+
+    // 震波：一圈一圈往外擴，越後面的越淡
+    for (let k = 0; k < fx.roarRings; k++) {
+      const ring = { r: PLAYER_HALF };
+      const g = this.add.graphics().setDepth(997);
+      const strength = 1 - k * 0.25;
+      this.tweens.add({
+        targets: ring, r: reach * (1 + k * 0.12), duration: fx.roarMs, delay: k * fx.roarRingGapMs, ease: "Cubic.easeOut",
+        onUpdate: (tween) => {
+          const t = tween.progress;
+          g.clear();
+          if (k === 0) g.fillStyle(fx.roarColor, 0.2 * (1 - t)).fillCircle(x, y, ring.r);
+          g.lineStyle(4 - k, fx.roarColor, strength * (1 - t)).strokeCircle(x, y, ring.r);
+          g.lineStyle(1, 0xffffff, 0.8 * strength * (1 - t)).strokeCircle(x, y, ring.r - 3);
+        },
+        onComplete: () => g.destroy(),
+      });
+    }
+
+    // 速度線：從身體往外射出的短線
+    const lines = this.add.graphics().setDepth(998);
+    const burst = { t: 0 };
+    const angles = Array.from({ length: fx.roarLines }, (_, k) => (k / fx.roarLines) * Math.PI * 2 + Math.random() * 0.3);
     this.tweens.add({
-      targets: ring, r: reach, duration: fx.roarMs, ease: "Cubic.easeOut",
-      onUpdate: (tween) => {
-        const t = tween.progress;
-        g.clear();
-        g.fillStyle(fx.roarColor, 0.18 * (1 - t)).fillCircle(x, y, ring.r);
-        g.lineStyle(3, fx.roarColor, 1 - t).strokeCircle(x, y, ring.r);
-        g.lineStyle(1, 0xffffff, 0.8 * (1 - t)).strokeCircle(x, y, ring.r * 0.7);
+      targets: burst, t: 1, duration: 260, ease: "Quad.easeOut",
+      onUpdate: () => {
+        lines.clear().lineStyle(2, 0xffffff, 1 - burst.t);
+        for (const a of angles) {
+          const r0 = PLAYER_HALF + reach * 0.9 * burst.t;
+          const r1 = r0 + 10 * (1 - burst.t) + 4;
+          lines.lineBetween(x + Math.cos(a) * r0, y - 4 + Math.sin(a) * r0, x + Math.cos(a) * r1, y - 4 + Math.sin(a) * r1);
+        }
       },
-      onComplete: () => g.destroy(),
+      onComplete: () => lines.destroy(),
     });
+
+    // 塵土：地上的小方塊往外滾開
+    for (let k = 0; k < fx.roarDust; k++) {
+      const a = Math.random() * Math.PI * 2;
+      const size = 2 + Math.floor(Math.random() * 3);
+      const dust = this.add.rectangle(x, y + PLAYER_HALF, size, size, 0xc9b98a, 0.8).setDepth(SHADOW.depth + 0.3);
+      const dist = reach * (0.6 + Math.random() * 0.5);
+      this.tweens.add({
+        targets: dust, x: x + Math.cos(a) * dist, y: y + PLAYER_HALF + Math.sin(a) * dist * 0.6,
+        alpha: 0, duration: 380 + Math.random() * 200, ease: "Quad.easeOut", onComplete: () => dust.destroy(),
+      });
+    }
+
+    // 被震到的人：金色衝擊
+    for (const [tx, ty] of targets) this.spawnImpact({ x: tx, y: ty, skill, hit: true });
   }
 
   /**

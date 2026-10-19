@@ -596,7 +596,6 @@ export class ArenaRoom extends Room {
    */
   castRoar(id, player, skill) {
     const reach = skill.radius + PLAYER_HALF;
-    this.broadcast("roar", { x: Math.round(player.x), y: Math.round(player.y), skill: skill.id });
     for (const [projectileId, p] of this.state.projectiles) {
       if (p.owner === id || Math.hypot(p.x - player.x, p.y - player.y) > reach) continue;
       this.broadcast("impact", { x: Math.round(p.x), y: Math.round(p.y), skill: p.skill, hit: false });
@@ -622,6 +621,11 @@ export class ArenaRoom extends Room {
       });
       targets.push({ id: otherId, player: other });
     }
+    // owner：誰吼的（客戶端讓他閃金光）；targets：震到誰（在他們身上爆金色衝擊）
+    this.broadcast("roar", {
+      x: Math.round(player.x), y: Math.round(player.y), skill: skill.id, owner: id,
+      targets: targets.map((t) => [Math.round(t.player.x), Math.round(t.player.y)]),
+    });
     for (const t of targets) {
       this.applyDamage(t.id, t.player, id, skill.damage);
       if (this.state.phase === "ended") return;
