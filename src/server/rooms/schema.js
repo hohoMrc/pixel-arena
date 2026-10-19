@@ -59,6 +59,7 @@ export const ArenaState = schema({
   countdown: t.uint8(),    // 倒數 / 結算剩幾秒
   winner: t.string(),      // 獲勝者的 sessionId（ended 時）
   killsToWin: t.uint8(),
+  isPrivate: t.boolean(),  // 私人房間：不會被快速配對到，只能用房號加入
   players: t.map(Player),
   projectiles: t.map(Projectile),
   blasts: t.map(Blast),

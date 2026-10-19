@@ -159,3 +159,5 @@ export const MAX_PLAYERS = SPAWN_POINTS.length;
 export const SKIN_COUNT = 4;
 /** 名稱最長幾個字 */
 export const NAME_MAX_LENGTH = 12;
+/** 房號幾位數字（也是 Colyseus 的 roomId，?room=房號 就能加入） */
+export const ROOM_CODE_LENGTH = 4;

@@ -71,15 +71,17 @@ html, body {
 }
 
 /* 進場畫面：名稱 + 選角色 */
+/* 進場畫面蓋住整個畫面（還沒進房間時操作區用不到），矮螢幕可以捲動 */
 #lobby {
-  position: absolute;
+  position: fixed;
   inset: 0;
-  z-index: 2;
+  z-index: 10;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 16px;
+  justify-content: safe center;
+  gap: 12px;
   padding: 16px;
   background: var(--bg);
 }
@@ -126,6 +128,22 @@ html, body {
   box-shadow: 0 4px 0 #a88f2a;
 }
 #lobby-join:active { transform: translateY(3px); box-shadow: 0 1px 0 #a88f2a; }
+/* 次要按鈕：建立私人房間、用房號加入 */
+.lobby-sub-btn {
+  font: inherit;
+  font-size: 15px;
+  color: var(--text);
+  background: var(--panel);
+  border: 2px solid var(--panel-edge);
+  border-radius: 8px;
+  padding: 10px 16px;
+}
+.lobby-sub-btn:active { border-color: var(--accent); }
+#lobby-create { width: min(100%, 220px); }
+#lobby-code-row { display: flex; gap: 8px; width: min(100%, 220px); }
+#lobby #lobby-code { flex: 1; min-width: 0; text-align: center; letter-spacing: 4px; }
+#lobby-error { min-height: 1.2em; font-size: 13px; color: #ff6b6b; }
+#lobby-error:empty { display: none; }
 
 /* 遊戲畫面中間的提示（等待、倒數、勝負） */
 #overlay {
@@ -148,6 +166,7 @@ html, body {
 #overlay .big { font-size: 72px; font-weight: bold; color: var(--accent); }
 #overlay .sub { font-size: 13px; color: var(--muted); line-height: 1.6; }
 #overlay .sub.small { font-size: 11px; }
+#overlay .room-code { color: var(--accent); font-size: 18px; letter-spacing: 3px; }
 /* 疊加層本身不擋操作，只有按鈕可以點 */
 #overlay .overlay-btn {
   pointer-events: auto;

@@ -14,24 +14,30 @@ const SERVER_URL =
 const client = new ColyseusSDK(SERVER_URL);
 
 /**
- * 網址有 ?room=xxx 就加入該房間，否則自動配對（有空房就加入，沒有就建立）。
+ * 依進場畫面的選擇加入房間：
+ *   quick  自動配對（有空位的公開房間就加入，沒有就建立）
+ *   create 建立私人房間
+ *   join   用房號加入
  * 加入後把房號寫回網址，直接複製網址就能邀請朋友。
- * @param {{ name: string, skin: number }} options 進場畫面選的名稱和角色
+ * 失敗時丟出 Error，message 是可以直接顯示給玩家看的中文。
+ *
+ * @param {{ name: string, skin: number, mode: "quick"|"create"|"join", code?: string }} choice
  */
-export async function joinArena(options) {
-  const params = new URLSearchParams(location.search);
-  const roomId = params.get("room");
-
+export async function joinArena({ name, skin, mode, code }) {
+  const options = { name, skin };
   let room;
   try {
-    room = roomId ? await client.joinById(roomId, options) : await client.joinOrCreate("arena", options);
+    if (mode === "join") room = await client.joinById(code, options);
+    else if (mode === "create") room = await client.create("arena", { ...options, private: true });
+    else room = await client.joinOrCreate("arena", options);
   } catch (err) {
-    if (!roomId) throw err;
-    // 房間不存在或已滿：改成自動配對
-    console.warn("無法加入指定房間，改為自動配對", err);
-    room = await client.joinOrCreate("arena", options);
+    console.warn("加入房間失敗", err);
+    if (mode !== "join") throw new Error("連線失敗，請稍後再試");
+    // Colyseus 的錯誤訊息：找不到是 not found，滿了是 locked
+    throw new Error(/locked/i.test(err?.message) ? `房間 ${code} 已滿` : `找不到房間 ${code}`);
   }
 
+  const params = new URLSearchParams(location.search);
   params.set("room", room.roomId);
   history.replaceState(null, "", `${location.pathname}?${params}`);
   return room;

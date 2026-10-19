@@ -1,4 +1,4 @@
-import { Room } from "colyseus";
+import { Room, matchMaker } from "colyseus";
 import { ArenaState, Player, PlayerInput, Projectile, Blast, Pillar } from "./schema.js";
 import { stepEntity } from "../../shared/movement.js";
 import { OBSTACLE_RECTS, obstacleIndexHitByCircle, circleOverlapsRect, obstacleHitByBox } from "../../shared/obstacles.js";
@@ -7,7 +7,7 @@ import { blastTarget, aimToward, meteorTargets } from "../../shared/blast.js";
 import {
   TICK_RATE, ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_MAX_HP,
   RESPAWN_TICKS, SKILLS, DASH_INDEX, SPAWN_POINTS, MAX_PLAYERS, ROUND, INPUT_SCALE,
-  SKIN_COUNT, NAME_MAX_LENGTH, ENERGY, RAGE, OBSTACLES, PILLAR,
+  SKIN_COUNT, NAME_MAX_LENGTH, ROOM_CODE_LENGTH, ENERGY, RAGE, OBSTACLES, PILLAR,
 } from "../../shared/constants.js";
 
 /** 不能動的時候（死亡、倒數、結算）用的空輸入 */
@@ -19,6 +19,14 @@ function cleanName(raw) {
   return Array.from(text).slice(0, NAME_MAX_LENGTH).join("");
 }
 
+/** 產生還沒被用掉的數字房號。房間太多、一直撞號時回傳 undefined（沿用 Colyseus 預設的亂數 id） */
+async function uniqueRoomCode() {
+  for (let i = 0; i < 20; i++) {
+    const code = String(Math.floor(Math.random() * 10 ** ROOM_CODE_LENGTH)).padStart(ROOM_CODE_LENGTH, "0");
+    if (!(await matchMaker.getRoomById(code))) return code;
+  }
+}
+
 /**
  * 對戰房間：伺服器說了算。
  * 客戶端只送輸入，移動、命中、扣血、復活、勝負全部在這裡計算。
@@ -28,6 +36,9 @@ function cleanName(raw) {
  *   countdown 倒數，所有人回出生點、不能動
  *   playing   對戰中，先拿到 ROUND.killsToWin 殺的獲勝
  *   ended     結算，顯示勝利者，時間到自動開下一局
+ *
+ * 房間：房號是 ROOM_CODE_LENGTH 位數字。建立時帶 { private: true } 就是私人房間，
+ * 快速配對（joinOrCreate）不會配到，只能輸入房號或點邀請連結加入。
  *
  * 電腦對手：等待時玩家可以按「跟電腦對戰」加入一隻（addBot 訊息）。
  * 電腦是 state.players 裡的一般玩家，只是輸入由 bot.js 產生；有真人加入時電腦會讓位。
@@ -63,7 +74,13 @@ export class ArenaRoom extends Room {
   /** 打壞的柱子哪個 tick 長回來 */
   pillarRespawnTick = OBSTACLES.map(() => 0);
 
-  onCreate() {
+  async onCreate(options) {
+    // roomId 只能在建立時改
+    const code = await uniqueRoomCode();
+    if (code) this.roomId = code;
+    this.state.isPrivate = options?.private === true;
+    if (this.state.isPrivate) this.setPrivate(true);
+
     this.state.phase = "waiting";
     this.state.killsToWin = ROUND.killsToWin;
     this.ensurePillars();
