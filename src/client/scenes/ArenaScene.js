@@ -1,6 +1,6 @@
 import * as Phaser from "phaser";
 import { Callbacks } from "@colyseus/sdk";
-import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, maxHpOf, SKILLS, DASH_INDEX, TICK_RATE, INPUT_SCALE, ENERGY, PILLAR } from "../../shared/constants.js";
+import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, maxHpOf, SKILLS, DASH_INDEX, isTargeted, TICK_RATE, INPUT_SCALE, ENERGY, PILLAR } from "../../shared/constants.js";
 import { theme, playerTextureKey, walkTextureKey, facingTextureKey, IDLE_FRAME } from "../theme.js";
 import { createMissingTextures } from "../placeholders.js";
 import { OBSTACLE_RECTS, circleHitsObstacle } from "../../shared/obstacles.js";
@@ -73,12 +73,13 @@ export class ArenaScene extends Phaser.Scene {
     super("arena");
   }
 
-  /** @param {{ room, predict, netInput, controls, solid }} data 由 main.js 傳入（solid：每根柱子還在不在，和預測移動共用） */
+  /** @param {{ room, predict, netInput, controls, solid, slowZones }} data 由 main.js 傳入（solid：每根柱子還在不在；slowZones：別人的毒沼。都和預測移動共用） */
   init(data) {
     Object.assign(this, data);
     this.playerViews = new Map();     // sessionId → { sprite, label, lastX, lastY, walkUntil, lastHp, flashUntil, jitterUntil }
     this.projectileViews = new Map(); // projectileId → { sprite, shadow, x, y, at, sampleX, sampleY, sampleAt }
-    this.blastViews = new Map();      // blastId → { fireball, shadow, startAt, fuseMs }
+    this.blastViews = new Map();      // blastId → { fireball, shadow, startAt, fuseMs }（藤蔓沒有 fireball）
+    this.zoneStartAt = new Map();     // zoneId → 出現的時間（畫消失前的閃爍）
   }
 
   preload() {
@@ -171,18 +172,27 @@ export class ArenaScene extends Phaser.Scene {
           this.cameras.main.flash(ms, ...color);
         }
       }
-      const fireball = this.add.image(b.x, b.y - BLAST_FX.dropHeight, skill.texture)
-        .setRotation(Math.PI / 2).setDepth(1002); // 圖片朝右，轉成朝下
+      // 有圖的技能（爆炎、流星雨）才有從天上掉下來的火球
+      const fireball = skill.texture
+        ? this.add.image(b.x, b.y - BLAST_FX.dropHeight, skill.texture).setRotation(Math.PI / 2).setDepth(1002) // 圖片朝右，轉成朝下
+        : null;
       const shadow = this.add.image(b.x, b.y, "shadow-projectile").setDepth(SHADOW.depth).setAlpha(0);
       const fuseTicks = b.fuse || skill.fuseTicks;
       this.blastViews.set(id, { fireball, shadow, startAt: now, fuseMs: (fuseTicks / TICK_RATE) * 1000 });
     });
     callbacks.onRemove("blasts", (_b, id) => {
       const view = this.blastViews.get(id);
-      view?.fireball.destroy();
+      view?.fireball?.destroy();
       view?.shadow.destroy();
       this.blastViews.delete(id);
     });
+
+    // 毒沼：出現時播冒泡聲，畫面在 drawZones 每幀畫
+    callbacks.onAdd("zones", (z, id) => {
+      this.zoneStartAt.set(id, performance.now());
+      this.playSfx(theme.skillSounds[z.skill]?.cast, z.owner === this.room.sessionId ? 1 : theme.othersVolume);
+    });
+    callbacks.onRemove("zones", (_z, id) => this.zoneStartAt.delete(id));
 
     this.room.onMessage("impact", (impact) => this.spawnImpact(impact));
     this.room.onMessage("swing", (swing) => this.spawnSwing(swing));
@@ -194,6 +204,14 @@ export class ArenaScene extends Phaser.Scene {
     const now = performance.now();
 
     // predict.tick 回傳這一幀該跑幾個固定 tick，每個 tick 送一次輸入
+    // 別人的毒沼：預測移動要知道哪裡會變慢（陣列原地更新，main.js 的預測共用同一個）
+    this.slowZones.length = 0;
+    for (const [, z] of this.room.state.zones) {
+      if (z.owner === this.room.sessionId) continue;
+      const skill = SKILLS[z.skill];
+      this.slowZones.push({ x: z.x, y: z.y, radius: skill.radius, slowFactor: skill.slowFactor });
+    }
+
     const steps = this.predict.tick(now);
     const self = this.room.state.players.get(this.room.sessionId);
     // 死亡、倒數、結算時送空輸入（伺服器也會忽略），預測才不會偏掉
@@ -245,9 +263,10 @@ export class ArenaScene extends Phaser.Scene {
       view.sprite.setDepth(feetY); // 依腳底位置排前後：越下面的越前面（和柱子同一個基準）
       view.sprite.setAlpha(player.alive ? 1 : 0.25);
       this.updateWalk(view, player, x, y, now, faceX, faceY);
-      this.updateFlash(view, now);
+      this.updateFlash(view, now, player.poisonTicks > 0 && player.alive);
       this.updateDash(view, player, isSelf, now);
       this.updateMelee(view, player, x, y, isSelf, now);
+      this.drawRoot(player, x, y, now);
       view.label.setPosition(Math.round(x), headY - 4).setDepth(feetY + 0.5);
       view.shadow.setPosition(Math.round(x), feetY).setAlpha(player.alive ? SHADOW.player.alpha : SHADOW.player.alpha * 0.4);
 
@@ -259,6 +278,7 @@ export class ArenaScene extends Phaser.Scene {
       if (view) this.drawProjectile(view, p, now);
     }
     this.drawBlasts(now);
+    this.drawZones(now);
 
     this.drawAimGuide(self, canAct);
 
@@ -276,11 +296,12 @@ export class ArenaScene extends Phaser.Scene {
       const view = this.blastViews.get(id);
       if (!view) continue;
       const radius = SKILLS[b.skill].radius;
+      const color = theme.targetColors?.[b.skill] ?? BLAST_FX.color;
       const t = Math.min(1, (now - view.startAt) / view.fuseMs);
-      this.blastGraphics.lineStyle(1, BLAST_FX.color, BLAST_FX.ringAlpha).strokeCircle(b.x, b.y, radius);
-      this.blastGraphics.fillStyle(BLAST_FX.color, BLAST_FX.fillAlpha).fillCircle(b.x, b.y, radius * t);
+      this.blastGraphics.lineStyle(1, color, BLAST_FX.ringAlpha).strokeCircle(b.x, b.y, radius);
+      this.blastGraphics.fillStyle(color, BLAST_FX.fillAlpha).fillCircle(b.x, b.y, radius * t);
       // 加速落下（t²），越接近爆炸掉越快
-      view.fireball.setPosition(Math.round(b.x), Math.round(b.y - BLAST_FX.dropHeight * (1 - t * t)));
+      view.fireball?.setPosition(Math.round(b.x), Math.round(b.y - BLAST_FX.dropHeight * (1 - t * t)));
       view.shadow.setAlpha(SHADOW.projectile.alpha * 1.5 * t).setScale(0.6 + t);
     }
   }
@@ -323,7 +344,7 @@ export class ArenaScene extends Phaser.Scene {
       return;
     }
 
-    if (skill.type === "blast" || skill.type === "meteor") {
+    if (isTargeted(skill)) {
       // 和伺服器用同一個函式算落點，看到哪就炸哪
       const aimX = aim.x * aim.power * INPUT_SCALE;
       const aimY = aim.y * aim.power * INPUT_SCALE;
@@ -502,21 +523,25 @@ export class ArenaScene extends Phaser.Scene {
     navigator.vibrate?.(died ? HIT_FEEDBACK.deathVibrateMs : HIT_FEEDBACK.vibrateMs);
   }
 
-  updateFlash(view, now) {
-    const flashing = now < view.flashUntil;
-    if (flashing && view.sprite.tintMode !== Phaser.TintModes.FILL) {
-      view.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
-    } else if (!flashing && view.sprite.tintMode === Phaser.TintModes.FILL) {
-      view.sprite.clearTint();
-    }
+  /** 受擊閃白優先，其次中毒染綠，都沒有就原色（狀態變了才改，不每幀重設） */
+  updateFlash(view, now, poisoned = false) {
+    const state = now < view.flashUntil ? "flash" : poisoned ? "poison" : "none";
+    if (state === view.tintState) return;
+    view.tintState = state;
+    if (state === "flash") view.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
+    else if (state === "poison") view.sprite.setTint(theme.witchFx.poisonTint).setTintMode(Phaser.TintModes.MULTIPLY);
+    else view.sprite.clearTint();
   }
 
   /** 命中爆炸（完整 5 格）和沒打中的冒煙（最後 2 格） */
+  /** 每張爆炸圖各一組（動畫 key：impact-hit-圖名、impact-miss-圖名） */
   createImpactAnimations() {
-    if (!this.textures.exists("explosion")) return;
     const frameRate = theme.impactFrameRate;
-    this.anims.create({ key: "impact-hit", frames: this.anims.generateFrameNumbers("explosion"), frameRate });
-    this.anims.create({ key: "impact-miss", frames: this.anims.generateFrameNumbers("explosion", { start: 3, end: 4 }), frameRate });
+    for (const tex of new Set(["explosion", ...Object.values(theme.impactTextures ?? {})])) {
+      if (!this.textures.exists(tex) || this.anims.exists(`impact-hit-${tex}`)) continue;
+      this.anims.create({ key: `impact-hit-${tex}`, frames: this.anims.generateFrameNumbers(tex), frameRate });
+      this.anims.create({ key: `impact-miss-${tex}`, frames: this.anims.generateFrameNumbers(tex, { start: 3, end: 4 }), frameRate });
+    }
   }
 
   /** area = 指定地點爆炸：不管有沒有打到人都是完整的大爆炸 */
@@ -524,10 +549,12 @@ export class ArenaScene extends Phaser.Scene {
     const big = hit || area;
     this.playSfx(big ? theme.skillSounds[skill]?.hit : "fizzle", big ? 1 : 0.5);
     if (area) this.cameras.main.shake(100, 0.004);
-    const key = big ? "impact-hit" : "impact-miss";
+    const tex = theme.impactTextures?.[skill] ?? "explosion";
+    const key = `${big ? "impact-hit" : "impact-miss"}-${tex}`;
     if (!this.anims.exists(key)) return;
-    const scale = big ? (SKILLS[skill]?.impactScale ?? 1) : 1;
-    const fx = this.add.sprite(x, y, "explosion").setScale(scale).setDepth(1001);
+    // 範圍技能的爆炸圖放大到和範圍差不多
+    const scale = big ? (SKILLS[skill]?.impactScale ?? (area ? SKILLS[skill].radius / 15 : 1)) : 1;
+    const fx = this.add.sprite(x, y, tex).setScale(scale).setDepth(1001);
     fx.play(key);
     fx.once("animationcomplete", () => fx.destroy());
   }
@@ -596,6 +623,47 @@ export class ArenaScene extends Phaser.Scene {
       }
       view.sprite.setFlipX(Math.floor(now / fx.whirlSpinMs) % 2 === 0);
     }
+  }
+
+  /** 毒沼：地上一灘綠色，裡面有泡泡冒出來；快消失時閃爍 */
+  drawZones(now) {
+    const fx = theme.witchFx;
+    for (const [id, z] of this.room.state.zones) {
+      const skill = SKILLS[z.skill];
+      const age = now - (this.zoneStartAt.get(id) ?? now);
+      const leftMs = (skill.durationTicks / TICK_RATE) * 1000 - age;
+      const blink = leftMs < 600 && Math.floor(now / 100) % 2 === 0;
+      const grow = Math.min(1, age / 150); // 出現時從中間擴散開
+      const r = skill.radius * grow;
+      this.floorFx.fillStyle(fx.swampColor, blink ? 0.15 : 0.32).fillCircle(z.x, z.y, r);
+      this.floorFx.lineStyle(1, fx.swampColor, blink ? 0.4 : 0.8).strokeCircle(z.x, z.y, r);
+      // 泡泡：用固定的「亂數」決定位置，每顆泡泡循環變大再破掉
+      for (let k = 0; k < 6; k++) {
+        const phase = ((now / 700) + k * 0.37) % 1;
+        const a = k * 2.4 + Math.floor((now / 700) + k * 0.37) * 1.3;
+        const d = r * (0.2 + ((k * 0.61) % 0.7));
+        this.floorFx.lineStyle(1, 0xcfffc4, 0.8 * (1 - phase))
+          .strokeCircle(Math.round(z.x + Math.cos(a) * d), Math.round(z.y + Math.sin(a) * d * 0.7), 1 + phase * 2.5);
+      }
+    }
+  }
+
+  /** 被藤蔓定身：腳邊一圈綠色藤蔓，快解除時閃爍 */
+  drawRoot(player, x, y, now) {
+    if (player.rootTicks === 0 || !player.alive) return;
+    if (player.rootTicks < 8 && Math.floor(now / 60) % 2 === 0) return;
+    const fx = theme.witchFx;
+    const cx = Math.round(x);
+    const feetY = Math.round(y + PLAYER_HALF);
+    this.statusFx.lineStyle(2, fx.vineColor, 0.95);
+    // 幾條從地上往上捲的藤蔓（左右交錯的折線）
+    for (let k = -2; k <= 2; k++) {
+      const bx = cx + k * 5;
+      this.statusFx.beginPath().moveTo(bx, feetY + 2);
+      for (let h = 1; h <= 3; h++) this.statusFx.lineTo(bx + (h % 2 ? 3 : -3) * Math.sign(k || 1), feetY + 2 - h * 5);
+      this.statusFx.strokePath();
+    }
+    this.statusFx.lineStyle(1, fx.vineColor, 0.6).strokeEllipse(cx, feetY, 26, 8);
   }
 
   /** 揮砍：沿著扇形畫一道刀光，很快淡掉 */

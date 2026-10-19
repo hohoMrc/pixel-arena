@@ -57,14 +57,16 @@ async function main() {
 
   // 每根柱子還在不在：ArenaScene 每幀從伺服器狀態更新，預測移動時才知道哪些柱子已經被打壞
   const solid = OBSTACLES.map(() => true);
+  // 別人的毒沼（會讓自己變慢）：同樣由 ArenaScene 每幀更新
+  const slowZones = [];
 
   // 自己的角色：先在本地預測移動（手感即時），伺服器結果回來再修正
   predict.reconciler(self, {
     input: netInput,
-    // stepEntity 會讀寫的欄位都要列出來，預測才完整（面向、衝刺狀態、衝刺冷卻）
-    fields: ["x", "y", "vx", "vy", "faceX", "faceY", "dashTicks", "dashCd"],
-    // 角色的移動速度、衝刺（紅劍士比較快）要和伺服器用同一份數值，預測才不會被拉回
-    step: (ctx, predicted, command) => stepEntity(predicted, command, ctx.dt, solid, moveStats),
+    // stepEntity 會讀寫的欄位都要列出來，預測才完整（面向、衝刺狀態、衝刺冷卻、定身）
+    fields: ["x", "y", "vx", "vy", "faceX", "faceY", "dashTicks", "dashCd", "rootTicks"],
+    // 角色的移動速度、衝刺（紅劍士比較快）、毒沼緩速要和伺服器用同一份數值，預測才不會被拉回
+    step: (ctx, predicted, command) => stepEntity(predicted, command, ctx.dt, solid, moveStats, slowZones),
   });
 
   setupHud(room);
@@ -84,7 +86,7 @@ async function main() {
     callbacks: {
       postBoot: (game) => {
         setupMute(game);
-        game.scene.add("arena", ArenaScene, true, { room, predict, netInput, controls, solid });
+        game.scene.add("arena", ArenaScene, true, { room, predict, netInput, controls, solid, slowZones });
       },
     },
   });

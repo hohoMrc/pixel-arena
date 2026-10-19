@@ -65,9 +65,10 @@ export class BotBrain {
   unstickDir = { x: 0, y: 0 };
 
   /**
-   * @param {object} ctx { id, player, players, projectiles, blasts, solid, tick, canCast(skillIndex) }
+   * @param {object} ctx { id, player, players, projectiles, blasts, zones, solid, tick, canCast(slot) }
+   *   zones = 別人的毒沼（ArenaRoom.slowZonesFor）
    */
-  think({ id, player, players, projectiles, blasts, solid, tick, canCast }) {
+  think({ id, player, players, projectiles, blasts, zones = [], solid, tick, canCast }) {
     const input = { moveX: 0, moveY: 0, skill: 0, aimX: 0, aimY: 0 };
     const target = this.findTarget(id, player, players);
     const threat = this.findThreat(id, player, projectiles, tick);
@@ -107,6 +108,10 @@ export class BotBrain {
         input.skill = DASH_SLOT + 1;
       }
     }
+
+    // 站在別人的毒沼裡 → 往外走（毒沼一直都看得到，不用擲骰子）
+    const swamp = zones.find((z) => (player.x - z.x) ** 2 + (player.y - z.y) ** 2 <= (z.radius + 4) ** 2);
+    if (swamp && !this.dodge) this.dodge = { ...toInput(player.x - swamp.x || 1, player.y - swamp.y), until: tick + 6 };
 
     // 2. 移動
     let move;
@@ -231,16 +236,22 @@ export class BotBrain {
         const aim = aimToward(player.x, player.y, target.x, target.y, ult);
         return { skill: ULTIMATE_SLOT + 1, aimX: aim.x, aimY: aim.y };
       }
+      // 藤蔓：預判對手預告結束時的位置
+      if (ult.type === "root" && dist < ult.range) {
+        const fuse = (ult.fuseTicks / TICK_RATE) * BOT_CONFIG.leadFactor;
+        const aim = aimToward(player.x, player.y, target.x + target.vx * fuse, target.y + target.vy * fuse, ult);
+        return { skill: ULTIMATE_SLOT + 1, aimX: aim.x, aimY: aim.y };
+      }
       // 旋風斬：貼近了才轉
       if (ult.type === "whirl" && dist < ult.radius + PLAYER_HALF - 6) return { skill: ULTIMATE_SLOT + 1, aimX: 0, aimY: 0 };
     }
 
-    // 爆炎：目標在射程內就丟，落點預判對手爆炸時會走到哪
-    const blastSlot = slotOf((s) => s.type === "blast");
+    // 爆炎、毒沼：目標在射程內就丟，落點預判對手爆炸時（毒沼是幾個 tick 後）會走到哪
+    const blastSlot = slotOf((s) => s.type === "blast" || s.type === "zone");
     if (blastSlot >= 0 && canCast(blastSlot)) {
       const blast = kit[blastSlot];
       if (dist < blast.range + blast.radius * 0.5) {
-        const fuse = (blast.fuseTicks / TICK_RATE) * BOT_CONFIG.leadFactor;
+        const fuse = ((blast.fuseTicks ?? 6) / TICK_RATE) * BOT_CONFIG.leadFactor;
         const err = BOT_CONFIG.blastErrorPx;
         const aim = aimToward(
           player.x, player.y,

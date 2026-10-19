@@ -27,6 +27,8 @@ export const Player = schema({
   guardX: t.int8(),      // 盾牌朝向（-INPUT_SCALE ~ INPUT_SCALE）
   guardY: t.int8(),
   whirlTicks: t.uint8(), // 旋風斬剩下幾個 tick
+  rootTicks: t.uint8(),  // 被定身剩下幾個 tick（藤蔓），stepEntity 會倒數
+  poisonTicks: t.uint8(), // 中毒剩下幾個 tick（毒液彈），客戶端用來把角色染綠
   hp: t.uint8(),
   energy: t.uint8(), // 能量（伺服器內部用小數累積，這裡同步整數）
   rage: t.uint8(),   // 怒氣，集滿 RAGE.max 可以放大招
@@ -58,6 +60,14 @@ export const Blast = schema({
   fuse: t.uint8(),  // 預告幾個 tick 後爆炸（流星雨每顆不同），客戶端用來畫預告進度
 });
 
+/** 地上持續一段時間的區域（毒沼）。存在多久看技能的 durationTicks，時間到從 map 移除 */
+export const Zone = schema({
+  owner: t.string(),
+  skill: t.uint8(),
+  x: t.number(),
+  y: t.number(),
+});
+
 export const ArenaState = schema({
   phase: t.string(),       // "waiting" | "countdown" | "playing" | "ended"
   countdown: t.uint8(),    // 倒數 / 結算剩幾秒
@@ -67,5 +77,6 @@ export const ArenaState = schema({
   players: t.map(Player),
   projectiles: t.map(Projectile),
   blasts: t.map(Blast),
+  zones: t.map(Zone),
   pillars: t.array(Pillar),
 });

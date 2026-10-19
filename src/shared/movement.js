@@ -2,6 +2,7 @@ import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, PLAYER_SPEED, SKILLS, DASH_INDE
 
 /** 沒傳角色數值時用的預設 */
 const DEFAULT_STATS = { speed: PLAYER_SPEED, dash: SKILLS[DASH_INDEX] };
+const NO_ZONES = [];
 import { obstacleHitByBox } from "./obstacles.js";
 
 const clamp = (value, min, max) => (value < min ? min : value > max ? max : value);
@@ -19,10 +20,23 @@ const clamp = (value, min, max) => (value < min ? min : value > max ? max : valu
  * @param {number} dt 秒
  * @param {boolean[]} [solid] 每根柱子還在不在（被打壞的可以穿過去），不傳 = 全部都在
  * @param {{ speed: number, dash: object }} [stats] 這個角色的移動速度和衝刺技能（constants.js 的 moveStatsOf）
+ * @param {{ x: number, y: number, radius: number, slowFactor: number }[]} [slowZones] 會讓這個角色變慢的區域（別人的毒沼）
+ *
+ * 定身（rootTicks）也在這裡倒數，和 dashCd 一樣跟著輸入走，預測重播時才會和伺服器一致。
  */
-export function stepEntity(entity, input, dt, solid, stats = DEFAULT_STATS) {
-  const { speed, dash } = stats;
+export function stepEntity(entity, input, dt, solid, stats = DEFAULT_STATS, slowZones = NO_ZONES) {
+  const { dash } = stats;
+  let speed = stats.speed;
   if (entity.dashCd > 0) entity.dashCd--;
+  const rooted = entity.rootTicks > 0;
+  if (rooted) {
+    entity.rootTicks--;
+    input = { ...input, moveX: 0, moveY: 0 }; // 被定身：不能走、不能衝刺（技能照常可以放）
+  }
+  // 站在毒沼裡（圓心在範圍內）：用最慢的那個
+  for (const z of slowZones) {
+    if ((entity.x - z.x) ** 2 + (entity.y - z.y) ** 2 <= z.radius * z.radius) speed = Math.min(speed, stats.speed * z.slowFactor);
+  }
 
   // 有在移動就更新面向（技能和衝刺的方向）
   if (input.moveX !== 0 || input.moveY !== 0) {
@@ -31,7 +45,7 @@ export function stepEntity(entity, input, dt, solid, stats = DEFAULT_STATS) {
   }
 
   // 開始衝刺：方向 = 面向（有推搖桿時就是推的方向）
-  if (dash && input.skill === DASH_SLOT + 1 && entity.dashCd === 0 && entity.dashTicks === 0) {
+  if (dash && !rooted && input.skill === DASH_SLOT + 1 && entity.dashCd === 0 && entity.dashTicks === 0) {
     entity.dashTicks = dash.ticks;
     entity.dashCd = dash.cooldownTicks;
   }

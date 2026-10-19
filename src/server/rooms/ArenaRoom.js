@@ -1,17 +1,17 @@
 import { Room, matchMaker } from "colyseus";
-import { ArenaState, Player, PlayerInput, Projectile, Blast, Pillar } from "./schema.js";
+import { ArenaState, Player, PlayerInput, Projectile, Blast, Pillar, Zone } from "./schema.js";
 import { stepEntity } from "../../shared/movement.js";
 import { OBSTACLE_RECTS, obstacleIndexHitByCircle, circleOverlapsRect, obstacleHitByBox } from "../../shared/obstacles.js";
 import { BotBrain } from "../bot.js";
 import { blastTarget, aimToward, meteorTargets } from "../../shared/blast.js";
 import {
   TICK_RATE, ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, maxHpOf, moveStatsOf,
-  RESPAWN_TICKS, SKILLS, DASH_SLOT, SLOT_COUNT, kitSkill, kitOf, SPAWN_POINTS, MAX_PLAYERS, ROUND, INPUT_SCALE,
+  RESPAWN_TICKS, SKILLS, DASH_SLOT, SLOT_COUNT, kitSkill, kitOf, isTargeted, SPAWN_POINTS, MAX_PLAYERS, ROUND, INPUT_SCALE,
   SKIN_COUNT, NAME_MAX_LENGTH, ROOM_CODE_LENGTH, ENERGY, RAGE, OBSTACLES, PILLAR,
 } from "../../shared/constants.js";
 
 /** 新玩家、復活、新的一局時，技能狀態歸零的欄位 */
-const FRESH_STATUS = { dashTicks: 0, dashCd: 0, guardTicks: 0, whirlTicks: 0 };
+const FRESH_STATUS = { dashTicks: 0, dashCd: 0, guardTicks: 0, whirlTicks: 0, rootTicks: 0, poisonTicks: 0 };
 
 /** 兩個方向的夾角是否在 arcDeg 的一半以內（方向不用是單位向量） */
 function withinArc(dirX, dirY, toX, toY, arcDeg) {
@@ -79,6 +79,10 @@ export class ArenaRoom extends Room {
   projectileExpire = new Map();
   /** 爆炸時間：blastId → tick */
   blastDetonate = new Map();
+  /** 毒沼：zoneId → { start, end }（哪個 tick 放的、哪個 tick 消失） */
+  zoneTimes = new Map();
+  /** 這個 tick 場上的毒沼（給 stepEntity 判斷緩速），每個 tick 開頭更新 */
+  activeZones = [];
   /** 每根柱子還在不在（每個 tick 從 state.pillars 更新），傳給移動和碰撞判定 */
   solid = OBSTACLES.map(() => true);
   /** 打壞的柱子哪個 tick 長回來 */
@@ -238,6 +242,9 @@ export class ArenaRoom extends Room {
     this.projectileExpire.clear();
     this.state.blasts.clear();
     this.blastDetonate.clear();
+    this.state.zones.clear();
+    this.zoneTimes.clear();
+    this.activeZones = [];
   }
 
   /** 倒數 / 結算剩幾秒（只在數字變了才會同步給客戶端） */
@@ -266,12 +273,13 @@ export class ArenaRoom extends Room {
 
     // 1. 處理每個玩家的輸入：移動 + 施放技能
     const canAct = (player) => player.alive && !frozen;
+    this.updateActiveZones();
     for (const [id, player] of this.state.players) {
       // 電腦：每個 tick 由 bot.js 想一個輸入
       const brain = this.meta.get(id)?.brain;
       if (brain) {
         const input = canAct(player) ? this.botThink(id, player, brain) : IDLE_INPUT;
-        stepEntity(player, input, ctx.dt, this.solid, moveStatsOf(player.skin));
+        stepEntity(player, input, ctx.dt, this.solid, moveStatsOf(player.skin), this.slowZonesFor(id));
         if (input.skill > 0) this.tryCastSkill(id, player, input.skill - 1, input);
         continue;
       }
@@ -281,7 +289,7 @@ export class ArenaRoom extends Room {
       for (const input of channel) {
         // 不能動時當作沒有輸入，但仍要跑 stepEntity（冷卻倒數），才會和客戶端預測一致
         const ok = canAct(player);
-        stepEntity(player, ok ? input : IDLE_INPUT, ctx.dt, this.solid, moveStatsOf(player.skin));
+        stepEntity(player, ok ? input : IDLE_INPUT, ctx.dt, this.solid, moveStatsOf(player.skin), this.slowZonesFor(id));
         if (ok && input.skill > 0) this.tryCastSkill(id, player, input.skill - 1, input);
       }
     }
@@ -312,6 +320,7 @@ export class ArenaRoom extends Room {
       players: this.state.players,
       projectiles: this.state.projectiles,
       blasts: this.state.blasts,
+      zones: this.slowZonesFor(id),
       solid: this.solid,
       tick: this.tick,
       canCast: (i) => this.canCast(meta, player, i),
@@ -337,10 +346,8 @@ export class ArenaRoom extends Room {
     if (skill.ultimate) player.rage = 0;
     else meta.energy -= skill.energyCost ?? 0;
 
-    if (skill.type === "blast" || skill.type === "meteor") {
-      this.castBlast(id, player, skill, input);
-      return;
-    }
+    if (skill.type === "zone") return this.castZone(id, player, skill, input);
+    if (isTargeted(skill)) return this.castBlast(id, player, skill, input);
     if (skill.type === "slash") return this.castSlash(id, player, skill, input);
     if (skill.type === "guard") {
       const [dirX, dirY] = this.aimDirection(id, player, input);
@@ -372,13 +379,7 @@ export class ArenaRoom extends Room {
    * 流星雨（meteor）同樣瞄準方式，只是在落點附近依序落下好幾顆。
    */
   castBlast(id, player, skill, input) {
-    let aim = { x: input.aimX, y: input.aimY };
-    if (aim.x === 0 && aim.y === 0) {
-      const target = this.nearestEnemy(id, player);
-      aim = target
-        ? aimToward(player.x, player.y, target.x, target.y, skill)
-        : { x: Math.round(player.faceX * 0.6), y: Math.round(player.faceY * 0.6) }; // 沒有敵人就丟到前方
-    }
+    const aim = this.targetAim(id, player, skill, input);
     const points = skill.type === "meteor"
       ? meteorTargets(player.x, player.y, aim.x, aim.y, skill)
       : [{ ...blastTarget(player.x, player.y, aim.x, aim.y, skill), fuseTicks: skill.fuseTicks }];
@@ -386,6 +387,58 @@ export class ArenaRoom extends Room {
       const blastId = String(this.nextProjectileId++);
       this.state.blasts.set(blastId, new Blast({ owner: id, skill: skill.id, x, y, fuse: fuseTicks }));
       this.blastDetonate.set(blastId, this.tick + fuseTicks);
+    }
+  }
+
+  /** 指定地點技能的瞄準：拖曳 = 玩家瞄的位置，輕點 = 最近的敵人（超過射程就丟到最遠），沒有敵人 = 前方 */
+  targetAim(id, player, skill, input) {
+    if (input.aimX !== 0 || input.aimY !== 0) return { x: input.aimX, y: input.aimY };
+    const target = this.nearestEnemy(id, player);
+    return target
+      ? aimToward(player.x, player.y, target.x, target.y, skill)
+      : { x: Math.round(player.faceX * 0.6), y: Math.round(player.faceY * 0.6) };
+  }
+
+  /** 毒沼：丟到哪就在哪出現（沒有預告），持續 durationTicks */
+  castZone(id, player, skill, input) {
+    const aim = this.targetAim(id, player, skill, input);
+    const { x, y } = blastTarget(player.x, player.y, aim.x, aim.y, skill);
+    const zoneId = String(this.nextProjectileId++);
+    this.state.zones.set(zoneId, new Zone({ owner: id, skill: skill.id, x, y }));
+    this.zoneTimes.set(zoneId, { start: this.tick, end: this.tick + skill.durationTicks });
+  }
+
+  /** 移除時間到的毒沼，整理出這個 tick 場上的毒沼 */
+  updateActiveZones() {
+    this.activeZones = [];
+    for (const [zoneId, z] of this.state.zones) {
+      const times = this.zoneTimes.get(zoneId);
+      if (!times || this.tick >= times.end) {
+        this.state.zones.delete(zoneId);
+        this.zoneTimes.delete(zoneId);
+        continue;
+      }
+      const skill = SKILLS[z.skill];
+      this.activeZones.push({ zoneId, owner: z.owner, x: z.x, y: z.y, radius: skill.radius, slowFactor: skill.slowFactor, skill, start: times.start });
+    }
+  }
+
+  /** 會讓這個玩家變慢的毒沼（自己放的不算） */
+  slowZonesFor(id) {
+    return this.activeZones.length ? this.activeZones.filter((z) => z.owner !== id) : this.activeZones;
+  }
+
+  /** 毒沼每 hitEveryTicks 扣一次站在裡面的敵人（剛放下時不扣，給人反應時間） */
+  updateZoneDamage() {
+    for (const z of this.activeZones) {
+      const age = this.tick - z.start;
+      if (age === 0 || age % z.skill.hitEveryTicks !== 0) continue;
+      for (const [id, player] of this.state.players) {
+        if (id === z.owner || !player.alive) continue;
+        if ((player.x - z.x) ** 2 + (player.y - z.y) ** 2 > z.radius * z.radius) continue;
+        this.applyDamage(id, player, z.owner, z.skill.damage);
+        if (this.state.phase === "ended") return;
+      }
     }
   }
 
@@ -410,6 +463,8 @@ export class ArenaRoom extends Room {
       this.state.blasts.delete(blastId);
       this.blastDetonate.delete(blastId);
       for (const t of targets) {
+        // 藤蔓：定身（衝刺也會被打斷）
+        if (skill.rootTicks) Object.assign(t.player, { rootTicks: skill.rootTicks, dashTicks: 0 });
         this.applyDamage(t.id, t.player, b.owner, skill.damage);
         if (this.state.phase === "ended") return; // 致勝一擊會清空場上所有技能
       }
@@ -467,7 +522,15 @@ export class ArenaRoom extends Room {
         this.projectileExpire.delete(projectileId);
       }
       // 扣血放在刪除之後：致勝一擊會清空所有火球
-      if (target) this.applyDamage(target.id, target.player, p.owner, SKILLS[p.skill].damage);
+      if (target) {
+        const skill = SKILLS[p.skill];
+        // 毒液彈：中毒（再中一次重新計時）
+        if (skill.poison) {
+          target.player.poisonTicks = skill.poison.ticks;
+          this.meta.get(target.id).poison = { owner: p.owner, ...skill.poison };
+        }
+        this.applyDamage(target.id, target.player, p.owner, skill.damage);
+      }
       if (this.state.phase === "ended") return;
     }
   }
@@ -510,8 +573,19 @@ export class ArenaRoom extends Room {
 
   /** 每個 tick：盾牌倒數；旋風斬每 hitEveryTicks 砍一次周圍的人（剛放的那一下就會砍） */
   updateStatuses() {
+    this.updateZoneDamage();
+    if (this.state.phase === "ended") return;
     for (const [id, player] of this.state.players) {
       if (player.guardTicks > 0) player.guardTicks--;
+      // 中毒：每 everyTicks 扣一次血（算施毒者的傷害，毒死也算他的擊殺）
+      if (player.poisonTicks > 0 && player.alive) {
+        player.poisonTicks--;
+        const poison = this.meta.get(id)?.poison;
+        if (poison && player.poisonTicks % poison.everyTicks === 0) {
+          this.applyDamage(id, player, poison.owner, poison.damage);
+          if (this.state.phase === "ended") return;
+        }
+      }
       if (player.whirlTicks === 0) continue;
       const skill = this.meta.get(id)?.whirlSkill;
       const hitNow = skill && player.whirlTicks % skill.hitEveryTicks === 0;
@@ -605,7 +679,7 @@ export class ArenaRoom extends Room {
     if (target.hp > 0) return;
 
     target.alive = false;
-    Object.assign(target, { dashTicks: 0, guardTicks: 0, whirlTicks: 0 });
+    Object.assign(target, { dashTicks: 0, guardTicks: 0, whirlTicks: 0, rootTicks: 0, poisonTicks: 0 });
     this.meta.get(targetId).respawnTick = this.tick + RESPAWN_TICKS;
 
     // 只有正式對戰中才計分（等待中的練習不算）

@@ -138,7 +138,47 @@ export const SKILLS = [
     cooldownTicks: 36,   // 1.2 秒
     invulnerable: true,
   },
+
+  // ── 綠巫師 ──
+  {
+    name: "毒液彈",      // 沒有 type = 直線飛行的子彈（和火球同一套），命中後中毒
+    texture: "poisonball",
+    impactScale: 1,
+    speed: 230,          // 比火球慢，比較好躲
+    radius: 5,
+    damage: 12,
+    poison: { ticks: 60, everyTicks: 15, damage: 5 }, // 中毒 2 秒，每 0.5 秒扣 5（共 20）；再中一次會重新計時，不會疊加
+    cooldownTicks: 15,   // 0.5 秒
+    energyCost: 8,
+    lifetimeTicks: 42,   // 射程約 322
+  },
+  {
+    name: "毒沼",
+    type: "zone",        // 指定地點留下一灘毒，敵人踩在裡面會變慢、持續扣血
+    range: 150,
+    radius: 36,
+    durationTicks: 90,   // 3 秒
+    slowFactor: 0.5,     // 在毒沼裡移動速度剩一半
+    damage: 6,
+    hitEveryTicks: 15,   // 每 0.5 秒扣一次（整整 3 秒站著 = 36）
+    cooldownTicks: 150,  // 5 秒
+    energyCost: 30,
+  },
+  {
+    name: "藤蔓",
+    type: "root",        // 指定地點，短暫預告後把範圍內的人定身（不能走、不能衝刺，還是可以放技能）
+    ultimate: true,
+    range: 170,
+    radius: 48,
+    fuseTicks: 15,       // 預告 0.5 秒
+    damage: 20,
+    rootTicks: 45,       // 定身 1.5 秒
+    cooldownTicks: 30,
+  },
 ];
+
+/** 指定地點的技能（拖曳時拖越遠丟越遠，落點用 shared/blast.js 算） */
+export const isTargeted = (skill) => ["blast", "meteor", "zone", "root"].includes(skill?.type);
 
 // 技能編號 = 在 SKILLS 裡的索引（火球、爆炸會記錄是哪個技能放的）
 SKILLS.forEach((skill, id) => (skill.id = id));
@@ -146,12 +186,12 @@ SKILLS.forEach((skill, id) => (skill.id = id));
 /**
  * 每個角色的技能組，順序 = skin 編號。每組 4 格，對應按鈕位置：
  *   0 普攻（右下大顆） 1 技能（左下） 2 衝刺（右上，每個角色都要放 type: "dash" 的技能） 3 大招（左上）
- * 數字是 SKILLS 的索引。綠巫師、金武僧還沒做，先用法師的。
+ * 數字是 SKILLS 的索引。金武僧還沒做，先用法師的。
  */
 export const KITS = [
   [0, 1, 2, 3], // 藍法師：火球、爆炎、衝刺、流星雨
   [4, 5, 7, 6], // 紅劍士：揮砍、舉盾、衝刺（冷卻較短）、旋風斬
-  [0, 1, 2, 3], // 綠巫師
+  [8, 9, 2, 10], // 綠巫師：毒液彈、毒沼、衝刺、藤蔓
   [0, 1, 2, 3], // 金武僧
 ];
 export const SLOT_COUNT = 4;

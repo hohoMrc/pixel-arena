@@ -127,6 +127,20 @@ const SOUNDS = {
   ),
   // 旋風斬：持續的呼呼聲
   whirl: () => synth({ duration: 0.7, wave: "noise", freq: [900, 2400], attack: 0.05, decay: 2, lowpass: [0.2, 0.35], vibrato: 9 }),
+  // ── 綠巫師 ──
+  // 毒液彈：濕濕的「啵」
+  poison_shot: () => synth({ duration: 0.18, wave: "triangle", freq: [300, 700], decay: 5, noiseMix: 0.3, lowpass: [0.5, 0.3] }),
+  // 毒液彈打中：嘶嘶的腐蝕聲
+  poison_hit: () => synth({ duration: 0.3, wave: "noise", freq: [4000, 1500], decay: 5, lowpass: [0.3, 0.15], vibrato: 25 }),
+  // 毒沼出現：冒泡聲
+  swamp: () => concat(
+    ...[180, 240, 200, 280].map((f) => synth({ duration: 0.08, wave: "triangle", freq: [f, f * 1.8], decay: 4, noiseMix: 0.2 })),
+  ),
+  // 藤蔓纏住：低沉的「嗖」＋纏繞聲
+  vine: () => concat(
+    synth({ duration: 0.12, wave: "noise", freq: [600, 2500], decay: 3, lowpass: [0.2, 0.4] }),
+    synth({ duration: 0.3, wave: "square", freq: [140, 90], decay: 4, lowpass: [0.3, 0.15], vibrato: 14 }),
+  ),
 };
 
 /** 正規化音量並寫成 16-bit 單聲道 WAV */
