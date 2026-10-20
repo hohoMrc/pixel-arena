@@ -53,6 +53,8 @@ export function showLobby(form, error = "") {
       card.type = "button";
       card.className = "skin-card";
       card.innerHTML = `<img alt="" src="${theme.assets[playerTextureKey(i)]?.path ?? ""}"><span>${theme.skins?.[i] ?? `角色 ${i + 1}`}</span>`;
+      // 呼吸動畫錯開時間，四個角色才不會一起動
+      card.querySelector("img").style.animationDelay = `${-i * 0.37}s`;
       card.addEventListener("click", () => selectSkin(i));
       skinsEl.appendChild(card);
     }
