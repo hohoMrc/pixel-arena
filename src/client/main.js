@@ -128,6 +128,8 @@ function setupHud(room) {
     setTimeout(() => ($("share").textContent = "邀請"), 2000);
   });
 
+  setupLeave(room);
+
   // 比分不需要每幀更新
   setInterval(() => {
     const rows = [...room.state.players.entries()]
@@ -138,6 +140,38 @@ function setupHud(room) {
   }, 300);
 
   room.onLeave(() => (statusEl.textContent = "已斷線，請重新整理"));
+}
+
+/**
+ * 離開房間：按一次變成「確定離開？」，3 秒內再按一次才離開（手機上容易誤觸）。
+ * 先正式通知伺服器離開（角色立刻消失），再回到進場畫面；網址去掉 ?room=，進場畫面才不會又帶入同一個房號。
+ */
+function setupLeave(room) {
+  const btn = $("leave");
+  btn.hidden = false;
+  let confirmTimer = 0;
+  const reset = () => {
+    btn.textContent = "離開";
+    btn.classList.remove("confirm");
+    confirmTimer = 0;
+  };
+  btn.addEventListener("click", async () => {
+    if (!confirmTimer) {
+      btn.textContent = "確定離開？";
+      btn.classList.add("confirm");
+      confirmTimer = setTimeout(reset, 3000);
+      return;
+    }
+    clearTimeout(confirmTimer);
+    btn.disabled = true;
+    try {
+      await room.leave(true);
+    } catch {
+      // 已經斷線也沒關係，直接回進場畫面
+    }
+    // 重新載入是最乾淨的重來方式（遊戲畫面、預測、按鈕都重新建立）
+    location.replace(location.pathname);
+  });
 }
 
 main().catch((err) => {

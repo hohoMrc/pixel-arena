@@ -49,7 +49,7 @@ html, body {
 #score { flex: 1; display: flex; gap: 10px; overflow: hidden; white-space: nowrap; }
 #score .me { color: var(--accent); }
 #score .goal { color: var(--text); }
-#share, #mute {
+#share, #mute, #leave {
   font: inherit;
   color: var(--text);
   background: var(--panel-edge);
@@ -60,6 +60,11 @@ html, body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 離開要按兩次：第一次變紅色提示 */
+#leave.confirm {
+  background: #c0392b;
 }
 
 /* 遊戲畫面佔剩下空間，Phaser 會等比縮放到這個框裡 */
