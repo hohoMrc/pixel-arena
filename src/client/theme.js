@@ -6,6 +6,15 @@
  * - size：placeholder 的尺寸，也是建議的原圖尺寸（像素圖請用這個大小或整數倍）。
  * - color：placeholder 的主色。
  */
+
+/**
+ * 鏡頭放大倍率（1 = 原本 416×512 的視野）。
+ * 試用期間：開發模式下網址加 ?zoom=1.15 可以暫時換倍率比較，不用改程式。
+ */
+const DEFAULT_ZOOM = 1.2;
+const zoomParam = import.meta.env?.DEV ? Number(new URLSearchParams(location.search).get("zoom")) : 0;
+const VIEW_ZOOM = zoomParam >= 0.8 && zoomParam <= 2 ? zoomParam : DEFAULT_ZOOM;
+
 export const theme = {
   name: "預設像素風",
   backgroundColor: "#1d1f2b",
@@ -207,8 +216,11 @@ export const theme = {
 
   /** 外框厚度（像素）。上方要夠高，角色走到最上面時頭才不會被切掉 */
   border: { top: 64, side: 16, bottom: 16 },
-  /** 手機上看到的遊戲畫面大小（遊戲單位）。場地比這個大，鏡頭跟著自己移動 */
-  viewport: { width: 416, height: 512 },
+  /**
+   * 手機上看到的遊戲畫面大小（遊戲單位）。場地比這個大，鏡頭跟著自己移動。
+   * 由 416×512 除以 VIEW_ZOOM 得到：倍率越大，角色越大、看到的場地越少
+   */
+  viewport: { width: Math.round(416 / VIEW_ZOOM), height: Math.round(512 / VIEW_ZOOM) },
   /** 右上角小地圖 */
   minimap: { width: 64, margin: 6, alpha: 0.75 },
 
