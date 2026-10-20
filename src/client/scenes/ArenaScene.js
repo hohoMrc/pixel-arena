@@ -268,7 +268,7 @@ export class ArenaScene extends Phaser.Scene {
       this.updateFlash(view, now, player.poisonTicks > 0 && player.alive);
       this.updateDash(view, player, isSelf, now);
       this.updateMelee(view, player, x, y, isSelf, now);
-      this.drawRoot(player, x, y, now);
+      this.drawRoot(view, player, x, y, now);
       this.drawBarrier(view, player, x, y, isSelf, now);
       view.label.setPosition(Math.round(x), headY - 4).setDepth(feetY + 0.5);
       view.shadow.setPosition(Math.round(x), feetY).setAlpha(player.alive ? SHADOW.player.alpha : SHADOW.player.alpha * 0.4);
@@ -306,6 +306,47 @@ export class ArenaScene extends Phaser.Scene {
       // 加速落下（t²），越接近爆炸掉越快
       view.fireball?.setPosition(Math.round(b.x), Math.round(b.y - BLAST_FX.dropHeight * (1 - t * t)));
       view.shadow.setAlpha(SHADOW.projectile.alpha * 1.5 * t).setScale(0.6 + t);
+      if (SKILLS[b.skill].type === "root") this.drawRootWarning(b.x, b.y, radius, t, now);
+    }
+  }
+
+  /**
+   * 畫一條彎彎曲曲的藤蔓：從 (x0,y0) 到 (x1,y1)，沿途左右擺動。
+   * 先畫暗色粗線當外框，再畫亮色細線，像素風看起來比較立體。
+   */
+  drawVine(g, x0, y0, x1, y1, { wiggle = 3, phase = 0, width = 2, alpha = 1 } = {}) {
+    const fx = theme.witchFx;
+    const len = Math.hypot(x1 - x0, y1 - y0) || 1;
+    const nx = -(y1 - y0) / len; // 垂直方向（左右擺動用）
+    const ny = (x1 - x0) / len;
+    const segments = Math.max(3, Math.round(len / 5));
+    const points = [];
+    for (let i = 0; i <= segments; i++) {
+      const s = i / segments;
+      const off = Math.sin(s * Math.PI * 2 + phase) * wiggle * s; // 根部不動，越往尖端擺越大
+      points.push([x0 + (x1 - x0) * s + nx * off, y0 + (y1 - y0) * s + ny * off]);
+    }
+    for (const [w, color] of [[width + 2, fx.vineDark], [width, fx.vineColor]]) {
+      g.lineStyle(w, color, alpha).beginPath().moveTo(points[0][0], points[0][1]);
+      for (const [px, py] of points.slice(1)) g.lineTo(px, py);
+      g.strokePath();
+    }
+    // 尖端一片葉子
+    const [tx, ty] = points.at(-1);
+    g.fillStyle(fx.leafColor, alpha).fillRect(Math.round(tx) - 1, Math.round(ty) - 1, 3, 2);
+  }
+
+  /** 藤蔓預告：圈的邊緣長出藤蔓，隨時間往中心蔓延（快纏住了） */
+  drawRootWarning(x, y, radius, t, now) {
+    const fx = theme.witchFx;
+    for (let k = 0; k < fx.rootTendrils; k++) {
+      const a = (k / fx.rootTendrils) * Math.PI * 2 + 0.3;
+      const reach = radius * (0.15 + 0.6 * t);
+      const sx = x + Math.cos(a) * radius;
+      const sy = y + Math.sin(a) * radius * 0.85;
+      const ex = x + Math.cos(a) * (radius - reach);
+      const ey = y + Math.sin(a) * (radius - reach) * 0.85;
+      this.drawVine(this.blastGraphics, sx, sy, ex, ey, { wiggle: 3, phase: now / 120 + k, alpha: 0.5 + 0.5 * t });
     }
   }
 
@@ -557,6 +598,7 @@ export class ArenaScene extends Phaser.Scene {
     const big = hit || area;
     this.playSfx(big ? theme.skillSounds[skill]?.hit : "fizzle", big ? 1 : 0.5);
     if (hit && theme.meleeFx.cutSkills?.includes(skill)) return this.spawnCut(x, y);
+    if (area && SKILLS[skill]?.type === "root") return this.spawnVineBurst(x, y, SKILLS[skill].radius);
     if (area) this.cameras.main.shake(100, 0.004);
     const tex = theme.impactTextures?.[skill] ?? "explosion";
     const key = `${big ? "impact-hit" : "impact-miss"}-${tex}`;
@@ -661,21 +703,79 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /** 被藤蔓定身：腳邊一圈綠色藤蔓，快解除時閃爍 */
-  drawRoot(player, x, y, now) {
-    if (player.rootTicks === 0 || !player.alive) return;
-    if (player.rootTicks < 8 && Math.floor(now / 60) % 2 === 0) return;
+  /**
+   * 被藤蔓定身：藤蔓從腳邊往上纏到腰（剛被纏住時會長上來），隨風擺動；
+   * 快解除時閃爍，解除的瞬間藤蔓斷掉、葉子散開。
+   */
+  drawRoot(view, player, x, y, now) {
+    const rooted = player.rootTicks > 0 && player.alive;
     const fx = theme.witchFx;
     const cx = Math.round(x);
     const feetY = Math.round(y + PLAYER_HALF);
-    this.statusFx.lineStyle(2, fx.vineColor, 0.95);
-    // 幾條從地上往上捲的藤蔓（左右交錯的折線）
-    for (let k = -2; k <= 2; k++) {
-      const bx = cx + k * 5;
-      this.statusFx.beginPath().moveTo(bx, feetY + 2);
-      for (let h = 1; h <= 3; h++) this.statusFx.lineTo(bx + (h % 2 ? 3 : -3) * Math.sign(k || 1), feetY + 2 - h * 5);
-      this.statusFx.strokePath();
+    if (rooted && !view.rootStart) view.rootStart = now;
+    if (!rooted) {
+      if (view.rootStart && player.alive) this.spawnLeaves(cx, feetY - 8, 8, 18); // 掙脫
+      view.rootStart = 0;
+      return;
     }
-    this.statusFx.lineStyle(1, fx.vineColor, 0.6).strokeEllipse(cx, feetY, 26, 8);
+    if (player.rootTicks < 8 && Math.floor(now / 60) % 2 === 0) return;
+    const grow = Math.min(1, (now - view.rootStart) / fx.wrapGrowMs);
+    // 地上一圈纏繞的藤蔓
+    this.statusFx.lineStyle(3, fx.vineDark, 0.9).strokeEllipse(cx, feetY, 28, 9);
+    this.statusFx.lineStyle(1, fx.vineColor, 1).strokeEllipse(cx, feetY, 28, 9);
+    // 從腳邊往上纏的藤蔓：左右交錯，高度隨 grow 長到腰部
+    for (let k = 0; k < 5; k++) {
+      const bx = cx + (k - 2) * 5;
+      const height = (14 + (k % 2) * 6) * grow;
+      const lean = (k - 2) * -1.5; // 往身體中間靠
+      this.drawVine(this.statusFx, bx, feetY + 2, bx + lean, feetY + 2 - height, { wiggle: 2.5, phase: now / 150 + k * 1.7, width: 1 });
+    }
+  }
+
+  /** 藤蔓爆發：範圍內一堆藤蔓從地面竄起再縮回去，葉子往外噴，外圈閃一下綠光 */
+  spawnVineBurst(x, y, radius) {
+    const fx = theme.witchFx;
+    this.cameras.main.shake(140, 0.006);
+    const g = this.add.graphics().setDepth(997);
+    const vines = Array.from({ length: fx.burstVines }, (_, k) => {
+      const a = Math.random() * Math.PI * 2;
+      const d = Math.sqrt(Math.random()) * radius * 0.9;
+      return { x: x + Math.cos(a) * d, y: y + Math.sin(a) * d * 0.85, h: 14 + Math.random() * 14, lean: (Math.random() - 0.5) * 10, phase: k };
+    });
+    const anim = { t: 0 };
+    this.tweens.add({
+      targets: anim, t: 1, duration: fx.burstMs,
+      onUpdate: () => {
+        g.clear();
+        // 前 30% 竄起，之後慢慢縮回、變淡
+        const rise = Math.min(1, anim.t / 0.3);
+        const fade = anim.t < 0.5 ? 1 : 1 - (anim.t - 0.5) / 0.5;
+        g.lineStyle(2, fx.leafColor, 0.8 * (1 - anim.t)).strokeCircle(x, y, radius * (0.9 + 0.2 * anim.t));
+        for (const v of vines) {
+          const h = v.h * (rise < 1 ? 1 - (1 - rise) ** 3 : 1 - 0.3 * anim.t);
+          this.drawVine(g, v.x, v.y, v.x + v.lean, v.y - h, { wiggle: 3, phase: v.phase + anim.t * 6, alpha: fade });
+        }
+      },
+      onComplete: () => g.destroy(),
+    });
+    this.spawnLeaves(x, y, 16, radius);
+  }
+
+  /** 葉子：小綠方塊往外噴，帶一點往下掉的重力 */
+  spawnLeaves(x, y, count, spread) {
+    const fx = theme.witchFx;
+    for (let k = 0; k < count; k++) {
+      const a = Math.random() * Math.PI * 2;
+      const d = spread * (0.5 + Math.random() * 0.7);
+      const leaf = this.add.rectangle(x, y, 3, 2, k % 3 ? fx.leafColor : fx.vineColor).setDepth(1001).setRotation(a);
+      this.tweens.add({
+        targets: leaf,
+        x: x + Math.cos(a) * d,
+        y: { value: y + Math.sin(a) * d * 0.6 + 8, ease: "Quad.easeIn" },
+        rotation: a + (Math.random() - 0.5) * 6,
+        alpha: 0, duration: 450 + Math.random() * 250, onComplete: () => leaf.destroy(),
+      });
+    }
   }
 
   /** 金鐘罩：身體外面一圈金色的罩子，越被打越淡；出現時「噹」一聲 */

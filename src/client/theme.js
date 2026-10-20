@@ -111,6 +111,12 @@ export const theme = {
     swampColor: 0x5fd35a,   // 毒沼
     vineColor: 0x3fbf4a,    // 被定身時腳邊的藤蔓
     poisonTint: 0x9dff8a,   // 中毒時角色染綠（MULTIPLY）
+    leafColor: 0x8be36b,    // 藤蔓上的葉子
+    vineDark: 0x2a7a35,     // 藤蔓的暗部（外框）
+    rootTendrils: 8,        // 藤蔓預告圈邊緣長出幾條
+    burstVines: 14,         // 藤蔓爆發時竄出幾條
+    burstMs: 420,           // 爆發的藤蔓多久消失
+    wrapGrowMs: 220,        // 定身時藤蔓從腳纏到腰要多久
   },
   /** 金武僧的效果 */
   monkFx: {
