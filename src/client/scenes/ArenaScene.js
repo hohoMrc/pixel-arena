@@ -274,6 +274,7 @@ export class ArenaScene extends Phaser.Scene {
       this.updateMelee(view, player, x, y, isSelf, now);
       this.drawRoot(view, player, x, y, now);
       this.drawWading(id, player, x, y, now);
+      this.drawPoisoned(view, player, x, y, now);
       this.drawBarrier(view, player, x, y, isSelf, now);
       view.label.setPosition(Math.round(x), headY - 4).setDepth(feetY + 0.5);
       view.shadow.setPosition(Math.round(x), feetY).setAlpha(player.alive ? SHADOW.player.alpha : SHADOW.player.alpha * 0.4);
@@ -604,6 +605,7 @@ export class ArenaScene extends Phaser.Scene {
     this.playSfx(big ? theme.skillSounds[skill]?.hit : "fizzle", big ? 1 : 0.5);
     if (hit && theme.meleeFx.cutSkills?.includes(skill)) return this.spawnCut(x, y);
     if (area && SKILLS[skill]?.type === "root") return this.spawnVineBurst(x, y, SKILLS[skill].radius);
+    if (SKILLS[skill]?.poison) return this.spawnPoisonSplat(x, y, hit);
     if (area) this.cameras.main.shake(100, 0.004);
     const tex = theme.impactTextures?.[skill] ?? "explosion";
     const key = `${big ? "impact-hit" : "impact-miss"}-${tex}`;
@@ -768,21 +770,66 @@ export class ArenaScene extends Phaser.Scene {
       targets: ring, displayWidth: radius * 2.3, displayHeight: radius * 2,
       alpha: 0, duration: 380, ease: "Quad.easeOut", onComplete: () => ring.destroy(),
     });
-    for (let k = 0; k < fx.swampSplash; k++) {
-      const ang = (k / fx.swampSplash) * Math.PI * 2 + Math.random() * 0.4;
-      const d = radius * (0.6 + Math.random() * 0.6);
+    this.spawnDroplets(x, y, fx.swampSplash, radius, 10);
+  }
+
+  /** 毒液水滴：往四周噴出去，每滴畫一道拋物線（先往上再落回地面） */
+  spawnDroplets(x, y, count, spread, height) {
+    const fx = theme.witchFx;
+    for (let k = 0; k < count; k++) {
+      const ang = (k / count) * Math.PI * 2 + Math.random() * 0.4;
+      const d = spread * (0.6 + Math.random() * 0.6);
       const drop = this.add.rectangle(x, y, 3, 3, k % 2 ? fx.swampColor : fx.swampMist).setDepth(1001);
-      const height = 10 + Math.random() * 12;
+      const h = height * (1 + Math.random() * 1.2);
       const anim = { t: 0 };
       this.tweens.add({
         targets: anim, t: 1, duration: 360 + Math.random() * 160,
         onUpdate: () => {
-          // 往外飛的同時畫一道拋物線（先往上再落回地面）
-          drop.setPosition(x + Math.cos(ang) * d * anim.t, y + Math.sin(ang) * d * 0.85 * anim.t - height * 4 * anim.t * (1 - anim.t));
+          drop.setPosition(x + Math.cos(ang) * d * anim.t, y + Math.sin(ang) * d * 0.85 * anim.t - h * 4 * anim.t * (1 - anim.t));
           drop.setAlpha(1 - anim.t * 0.6);
         },
         onComplete: () => drop.destroy(),
       });
+    }
+  }
+
+  /**
+   * 毒液彈打中：啪一聲濺開（中間一團綠色炸開、水滴噴四周），地上留下一灘毒液慢慢淡掉。
+   * 沒打中人（撞牆、飛到底）只有小小一灘和幾滴。
+   */
+  spawnPoisonSplat(x, y, hit) {
+    const fx = theme.witchFx;
+    const size = hit ? 1 : 0.55;
+    const groundY = y + SHADOW.projectile.offsetY * 0.6;
+    const stain = this.add.ellipse(x, groundY, 22 * size, 9 * size, fx.swampDark, 0.6).setDepth(SHADOW.depth + 0.3);
+    this.tweens.add({ targets: stain, scaleX: 1.2, alpha: 0, duration: fx.splatMs, ease: "Quad.easeIn", onComplete: () => stain.destroy() });
+    const blob = this.add.circle(x, y, 7 * size, fx.swampColor, 0.9).setDepth(1001);
+    this.tweens.add({ targets: blob, scale: 1.8, alpha: 0, duration: 200, ease: "Quad.easeOut", onComplete: () => blob.destroy() });
+    this.spawnDroplets(x, y, hit ? fx.splatDrops : 4, 20 * size, 8 * size);
+  }
+
+  /**
+   * 中毒中：頭上冒綠色泡泡（每顆往上飄、變大、破掉）；
+   * 每次毒發扣血時從身上噴出幾滴毒液。
+   */
+  drawPoisoned(view, player, x, y, now) {
+    const poisoned = player.poisonTicks > 0 && player.alive;
+    const every = SKILLS.find((s) => s.poison)?.poison.everyTicks ?? 15;
+    const step = Math.ceil(player.poisonTicks / every); // 每毒發一次少 1
+    // 最後一次毒發時 poisonTicks 剛好變 0，所以不檢查 poisoned
+    if (player.alive && view.poisonStep !== undefined && step < view.poisonStep) this.spawnDroplets(x, y, 5, 10, 6);
+    view.poisonStep = poisoned ? step : undefined;
+    if (!poisoned) return;
+    const fx = theme.witchFx;
+    const headY = Math.round(y + PLAYER_HALF) - view.sprite.height;
+    for (let k = 0; k < 3; k++) {
+      const t = ((now / 800) + k / 3) % 1;
+      // 從頭的兩側往上冒（正上方是名字，會被擋住）
+      const bx = Math.round(x) + (k - 1) * 9 + Math.round(Math.sin(t * 7 + k) * 1.5);
+      const by = Math.round(headY + 10 - t * 14);
+      const r = 1.5 + t * 1.5;
+      this.statusFx.fillStyle(fx.swampColor, 0.8 * (1 - t)).fillCircle(bx, by, r);
+      this.statusFx.lineStyle(1, fx.swampMist, 1 - t).strokeCircle(bx, by, r);
     }
   }
 
@@ -1083,6 +1130,27 @@ export class ArenaScene extends Phaser.Scene {
     view.at = now;
     view.sprite.setPosition(Math.round(pos.x), Math.round(pos.y)).setDepth(pos.y + 0.1); // 跟角色、柱子一樣依 y 排前後
     view.shadow.setPosition(Math.round(pos.x), Math.round(pos.y + SHADOW.projectile.offsetY));
+    if (SKILLS[p.skill]?.poison) this.updatePoisonBall(view, now);
+  }
+
+  /** 毒液彈飛行中：一團會晃動的毒液，沿路滴下毒液（落到地上濺開） */
+  updatePoisonBall(view, now) {
+    const wobble = Math.sin(now / 40);
+    view.sprite.setScale(1 + wobble * 0.12, 1 - wobble * 0.12);
+    if (now < (view.nextDripAt ?? 0)) return;
+    view.nextDripAt = now + theme.witchFx.dripEveryMs;
+    const fx = theme.witchFx;
+    const groundY = view.y + SHADOW.projectile.offsetY;
+    const drop = this.add.rectangle(Math.round(view.x), Math.round(view.y + 3), 2, 2, fx.swampColor).setDepth(view.y);
+    this.tweens.add({
+      targets: drop, y: groundY, duration: 180, ease: "Quad.easeIn",
+      onComplete: () => {
+        drop.destroy();
+        // 落地：一個小小的毒液點慢慢淡掉
+        const spot = this.add.ellipse(Math.round(view.x), Math.round(groundY), 4, 2, fx.swampDark, 0.7).setDepth(SHADOW.depth + 0.3);
+        this.tweens.add({ targets: spot, alpha: 0, duration: 400, onComplete: () => spot.destroy() });
+      },
+    });
   }
 
   /** 播音效；靜音中或檔案沒載入成功就略過 */

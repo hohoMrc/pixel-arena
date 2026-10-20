@@ -112,6 +112,9 @@ export const theme = {
     swampDark: 0x2f8a3a,    // 毒沼中間比較深的一層
     swampMist: 0xa8ff9a,    // 毒沼冒出的毒氣
     swampSplash: 14,        // 毒沼落地時噴出幾滴
+    dripEveryMs: 45,        // 毒液彈飛行時多久滴一滴
+    splatDrops: 10,         // 毒液彈打中時噴出幾滴
+    splatMs: 700,           // 打中後地上那灘毒液多久消失
     vineColor: 0x3fbf4a,    // 被定身時腳邊的藤蔓
     poisonTint: 0x9dff8a,   // 中毒時角色染綠（MULTIPLY）
     leafColor: 0x8be36b,    // 藤蔓上的葉子
