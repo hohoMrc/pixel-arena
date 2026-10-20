@@ -255,12 +255,20 @@ export class ArenaScene extends Phaser.Scene {
 
       // 血量變少 = 被打中（伺服器判定，所以每個玩家的畫面都會看到）
       const isSelf = id === this.room.sessionId;
-      if (player.hp < view.lastHp) this.onHit(view, isSelf, player.hp === 0, now);
-      if (player.alive && !view.lastAlive && isSelf) this.playSfx("respawn");
+      const feetY = Math.round(y + PLAYER_HALF);
+      if (player.hp < view.lastHp) {
+        this.onHit(view, isSelf, player.hp === 0, now);
+        this.spawnDamageNumber(x, feetY - view.sprite.height, view.lastHp - player.hp, isSelf, player.poisonTicks > 0 || this.inEnemySwamp(id, x, y));
+      }
+      if (!player.alive && view.lastAlive) this.spawnDeath(view, player);
+      if (player.alive && !view.lastAlive) {
+        if (isSelf) this.playSfx("respawn");
+        // 用伺服器位置：其他人的插值位置這時還在死掉的地方
+        this.spawnRespawn(view, player.x, Math.round(player.y + PLAYER_HALF), player.skin);
+      }
       view.lastHp = player.hp;
       view.lastAlive = player.alive;
 
-      const feetY = Math.round(y + PLAYER_HALF);
       const headY = feetY - view.sprite.height;
       const jitter = now < view.jitterUntil ? Math.round((Math.random() * 2 - 1) * HIT_FEEDBACK.jitterPx) : 0;
       view.sprite.setPosition(Math.round(x) + jitter, feetY);
@@ -268,7 +276,10 @@ export class ArenaScene extends Phaser.Scene {
       const faceX = isSelf ? this.predict.value(player, "faceX") : player.faceX;
       const faceY = isSelf ? this.predict.value(player, "faceY") : player.faceY;
       view.sprite.setDepth(feetY); // 依腳底位置排前後：越下面的越前面（和柱子同一個基準）
-      view.sprite.setAlpha(player.alive ? 1 : 0.25);
+      // 死掉：倒在地上、半透明（倒下的動畫在 spawnDeath；中途加入看到的直接是倒下的樣子）
+      if (!player.alive && !view.deadPose) view.sprite.setAngle(view.sprite.flipX ? -90 : 90).setAlpha(0.25);
+      if (player.alive) view.sprite.setAlpha(1);
+      view.deadPose = !player.alive;
       this.updateWalk(view, player, x, y, now, faceX, faceY);
       this.updateFlash(view, now, player.poisonTicks > 0 && player.alive);
       this.updateDash(view, player, isSelf, now);
@@ -586,6 +597,91 @@ export class ArenaScene extends Phaser.Scene {
     navigator.vibrate?.(died ? HIT_FEEDBACK.deathVibrateMs : HIT_FEEDBACK.vibrateMs);
   }
 
+  /** 頭上浮起一段字（傷害數字、格擋…）：先彈大一下，再往上飄、淡掉 */
+  spawnFloatText(x, y, text, color, size = 10) {
+    const t = this.add.text(Math.round(x + (Math.random() - 0.5) * 12), Math.round(y), text, {
+      fontFamily: "monospace", fontSize: `${size}px`, fontStyle: "bold", color,
+      stroke: "#000000", strokeThickness: 3, resolution: 4,
+    }).setOrigin(0.5, 1).setDepth(1100).setScale(1.6);
+    this.tweens.add({ targets: t, scale: 1, duration: 90, ease: "Quad.easeOut" });
+    this.tweens.add({
+      targets: t, y: t.y - 18, duration: theme.damageText.riseMs, ease: "Quad.easeOut",
+      onComplete: () => t.destroy(),
+    });
+    this.tweens.add({ targets: t, alpha: 0, delay: theme.damageText.riseMs * 0.55, duration: theme.damageText.riseMs * 0.45 });
+  }
+
+  /** 傷害數字：自己被打紅色、打別人白色、重擊黃色放大、中毒或毒沼綠色 */
+  spawnDamageNumber(x, headY, amount, isSelf, poison) {
+    const fx = theme.damageText;
+    const big = amount >= fx.bigAt;
+    const color = poison && amount < 10 ? fx.poisonColor : big ? fx.bigColor : isSelf ? fx.selfColor : fx.otherColor;
+    this.spawnFloatText(x, headY - 2, String(amount), color, big ? 13 : 10);
+  }
+
+  /** 死亡：身體往面向那邊倒下再變淡，噴出角色顏色的碎片，一個白色魂魄往上飄走 */
+  spawnDeath(view, player) {
+    const s = view.sprite;
+    const color = theme.skinColors[player.skin] ?? 0xffffff;
+    view.deadPose = true;
+    this.tweens.add({ targets: s, angle: s.flipX ? -90 : 90, duration: 240, ease: "Quad.easeIn" });
+    this.tweens.add({ targets: s, alpha: 0.25, delay: 400, duration: 300 });
+    const cx = s.x;
+    const cy = s.y - s.displayHeight / 2;
+    // 碎片：往四周噴，帶一點重力
+    for (let k = 0; k < 12; k++) {
+      const a = Math.random() * Math.PI * 2;
+      const d = 12 + Math.random() * 16;
+      const bit = this.add.rectangle(cx, cy, 3, 3, k % 3 ? color : 0xffffff).setDepth(1001);
+      this.tweens.add({
+        targets: bit, x: cx + Math.cos(a) * d,
+        y: { value: cy + Math.sin(a) * d * 0.6 + 10, ease: "Quad.easeIn" },
+        alpha: 0, duration: 450 + Math.random() * 200, onComplete: () => bit.destroy(),
+      });
+    }
+    // 魂魄：角色的白色剪影，左右飄著往上升
+    const soul = this.add.image(s.x, s.y, s.texture.key, s.frame.name).setOrigin(0.5, 1).setFlipX(s.flipX)
+      .setTint(0xffffff).setTintMode(Phaser.TintModes.FILL).setAlpha(0.6).setDepth(1001).setBlendMode(Phaser.BlendModes.ADD);
+    const anim = { t: 0 };
+    this.tweens.add({
+      targets: anim, t: 1, duration: 1000, ease: "Sine.easeOut",
+      onUpdate: () => {
+        soul.setPosition(cx + Math.sin(anim.t * Math.PI * 3) * 4, s.y - anim.t * 36).setScale(1 - anim.t * 0.4).setAlpha(0.6 * (1 - anim.t));
+      },
+      onComplete: () => soul.destroy(),
+    });
+    this.spawnDashDust(s.x, s.y, 0.8);
+  }
+
+  /** 復活：天上降下一道角色顏色的光柱，地上一圈光環擴散，角色從地上彈出來，周圍冒出光點 */
+  spawnRespawn(view, x, feetY, skin) {
+    const color = theme.skinColors[skin] ?? 0xffffff;
+    const s = view.sprite;
+    this.tweens.killTweensOf(s);
+    s.setAngle(0).setAlpha(1).setScale(1, 0.2);
+    this.tweens.add({ targets: s, scaleY: 1, duration: 260, ease: "Back.easeOut" });
+    view.deadPose = false;
+    // 光柱：外層角色色、裡面白色，從上往下打下來後變細消失
+    for (const [w, c, a] of [[18, color, 0.55], [6, 0xffffff, 0.9]]) {
+      const beam = this.add.rectangle(x, feetY, w, 120, c, a).setOrigin(0.5, 1).setDepth(1002)
+        .setBlendMode(Phaser.BlendModes.ADD).setScale(1, 0);
+      this.tweens.add({ targets: beam, scaleY: 1, duration: 120, ease: "Quad.easeOut" });
+      this.tweens.add({ targets: beam, scaleX: 0, alpha: 0, delay: 150, duration: 380, ease: "Quad.easeIn", onComplete: () => beam.destroy() });
+    }
+    const ring = this.add.ellipse(x, feetY, 16, 6).setStrokeStyle(2, color, 1).setDepth(SHADOW.depth + 0.3);
+    this.tweens.add({ targets: ring, scale: 3.5, alpha: 0, duration: 450, ease: "Quad.easeOut", onComplete: () => ring.destroy() });
+    // 光點往上飄
+    for (let k = 0; k < 10; k++) {
+      const px = x + (Math.random() - 0.5) * 22;
+      const dot = this.add.rectangle(px, feetY - Math.random() * 6, 2, 2, k % 2 ? color : 0xffffff).setDepth(1002)
+        .setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({
+        targets: dot, y: dot.y - 20 - Math.random() * 24, alpha: 0,
+        delay: 100 + Math.random() * 200, duration: 500 + Math.random() * 300, onComplete: () => dot.destroy(),
+      });
+    }
+  }
+
   /** 受擊閃白優先，其次獅子吼的金光、中毒染綠，都沒有就原色（狀態變了才改，不每幀重設） */
   updateFlash(view, now, poisoned = false) {
     const state = now < view.flashUntil ? "flash" : now < (view.roarUntil ?? 0) ? "roar" : poisoned ? "poison" : "none";
@@ -883,12 +979,17 @@ export class ArenaScene extends Phaser.Scene {
     return points;
   }
 
+  /** 這個玩家是不是站在別人的毒沼裡 */
+  inEnemySwamp(id, x, y) {
+    for (const z of this.room.state.zones.values()) {
+      if (z.owner !== id && (x - z.x) ** 2 + (y - z.y) ** 2 <= SKILLS[z.skill].radius ** 2) return true;
+    }
+    return false;
+  }
+
   /** 踩在別人的毒沼裡：腳邊一圈圈漣漪，偶爾濺起小水滴 */
   drawWading(id, player, x, y, now) {
-    if (!player.alive) return;
-    const inSwamp = [...this.room.state.zones.values()].some((z) =>
-      z.owner !== id && (x - z.x) ** 2 + (y - z.y) ** 2 <= SKILLS[z.skill].radius ** 2);
-    if (!inSwamp) return;
+    if (!player.alive || !this.inEnemySwamp(id, x, y)) return;
     const fx = theme.witchFx;
     const cx = Math.round(x);
     const feetY = Math.round(y + PLAYER_HALF);
@@ -1156,6 +1257,7 @@ export class ArenaScene extends Phaser.Scene {
   /** 金鐘罩吸收傷害：鐘身晃一下、閃一圈光；被打破時碎成金色碎片往外飛 */
   spawnBarrierHit({ x, y, broke }) {
     this.playSfx(broke ? "barrier_break" : "block", broke ? 1 : 0.5);
+    this.spawnFloatText(x, y - 24, broke ? "破！" : "吸收", broke ? "#ffffff" : "#ffd23f", broke ? 11 : 9);
     const fx = theme.monkFx;
     // 找出是誰的鐘（訊息只有位置：取最近的玩家）
     let view;
@@ -1376,6 +1478,7 @@ export class ArenaScene extends Phaser.Scene {
   /** 盾牌擋下攻擊：盾面閃白、往後縮一下，擋點噴出火花，往外震出一道弧形衝擊 */
   spawnBlock({ x, y, dx, dy }) {
     this.playSfx("block");
+    this.spawnFloatText(x, y - 24, "格擋", "#bfe9ff", 9);
     const fx = theme.meleeFx;
     const angle = Math.atan2(dy, dx);
     const r = PLAYER_HALF + 8;

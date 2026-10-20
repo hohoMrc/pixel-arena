@@ -142,6 +142,17 @@ export const theme = {
     qiTrail: { everyMs: 25, fadeMs: 220 }, // 氣功波飛行的殘影
     qiPierceLines: 8,       // 貫穿時往前噴的光線
   },
+  /** 每個角色的代表色（死亡碎片、復活光柱用），索引 = skin */
+  skinColors: [0x7fb8ff, 0xff6b5c, 0x6dd35a, 0xffd23f],
+  /** 傷害數字 */
+  damageText: {
+    selfColor: "#ff5c5c",   // 自己被打
+    otherColor: "#ffffff",  // 打到別人
+    bigColor: "#ffd23f",    // 重擊（≥ bigAt）
+    poisonColor: "#8be36b", // 中毒、毒沼
+    bigAt: 30,
+    riseMs: 650,            // 往上飄多久
+  },
   /** 衝刺殘影：每幾毫秒留一個、殘影多久消失 */
   dashTrail: { everyMs: 30, fadeMs: 220, alpha: 0.5 },
   /** 一般衝刺依角色換顏色：殘影顏色、沿路灑出的粒子顏色（索引 = skin；紅劍士有自己的，見 meleeFx） */
