@@ -1,6 +1,6 @@
 import * as Phaser from "phaser";
 import { Callbacks } from "@colyseus/sdk";
-import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, maxHpOf, SKILLS, DASH_INDEX, isTargeted, TICK_RATE, INPUT_SCALE, ENERGY, PILLAR } from "../../shared/constants.js";
+import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, maxHpOf, SKILLS, DASH_INDEX, DASH_SLOT, kitSkill, isTargeted, TICK_RATE, INPUT_SCALE, ENERGY, PILLAR } from "../../shared/constants.js";
 import { theme, playerTextureKey, walkTextureKey, facingTextureKey, IDLE_FRAME } from "../theme.js";
 import { createMissingTextures } from "../placeholders.js";
 import { OBSTACLE_RECTS, circleHitsObstacle } from "../../shared/obstacles.js";
@@ -627,22 +627,77 @@ export class ArenaScene extends Phaser.Scene {
     const dashTicks = isSelf ? this.predict.value(player, "dashTicks") : player.dashTicks;
     const dashing = dashTicks > 0 && player.alive;
 
+    // 劍士的衝刺有自己的特效（紅色殘影、劍氣軌跡、揚塵）
+    const fx = theme.meleeFx;
+    const swordDash = fx.dashSkills.includes(kitSkill(player.skin, DASH_SLOT)?.id);
+    const s = view.sprite;
     if (dashing && !view.wasDashing) {
       this.playSfx(theme.skillSounds[DASH_INDEX]?.cast, isSelf ? 1 : theme.othersVolume);
+      if (swordDash) {
+        view.dashFrom = { x: s.x, y: s.y };
+        this.spawnDashDust(s.x, s.y, 1);
+      }
     }
+    if (!dashing && view.wasDashing && swordDash && player.alive) this.spawnDashDust(s.x, s.y, 0.6); // 煞車
+    if (dashing && swordDash) this.drawDashStreak(view, now);
     view.wasDashing = dashing;
 
     // 被獅子吼震飛時也留殘影（金色），看得出是被打飛的
     const knockTicks = isSelf ? this.predict.value(player, "knockTicks") : player.knockTicks;
     const knocked = knockTicks > 0 && player.alive;
-    const trail = knocked ? theme.monkFx.knockTrail : dashing ? { ...theme.dashTrail, tint: 0x9fdcff } : null;
+    const dashTint = swordDash ? fx.dashTint : 0x9fdcff;
+    const trail = knocked ? theme.monkFx.knockTrail : dashing ? { ...theme.dashTrail, tint: dashTint } : null;
     if (trail && now >= view.nextTrailAt) {
       view.nextTrailAt = now + trail.everyMs;
-      const s = view.sprite;
       const ghost = this.add.image(s.x, s.y, s.texture.key, s.frame.name)
         .setOrigin(0.5, 1).setFlipX(s.flipX).setDepth(s.depth - 0.1).setAlpha(trail.alpha)
         .setTint(trail.tint).setTintMode(Phaser.TintModes.FILL);
       this.tweens.add({ targets: ghost, alpha: 0, duration: trail.fadeMs, onComplete: () => ghost.destroy() });
+    }
+  }
+
+  /**
+   * 劍士衝刺中：從起點到目前位置，地上拉出一道劍氣軌跡（每幀補一段，各自淡掉），
+   * 身後再加幾條白色風切線。
+   */
+  drawDashStreak(view, now) {
+    const fx = theme.meleeFx;
+    const s = view.sprite;
+    const from = view.dashFrom ?? { x: s.x, y: s.y };
+    const dx = s.x - from.x;
+    const dy = s.y - from.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 2) return;
+    // 軌跡：這一幀走過的那一段，畫成一條發光的線（貼在地上：腳底高度）
+    const seg = this.add.graphics().setDepth(SHADOW.depth + 0.3).setBlendMode(Phaser.BlendModes.ADD);
+    seg.lineStyle(4, fx.dashTint, 0.5).lineBetween(from.x, from.y - 2, s.x, s.y - 2);
+    seg.lineStyle(2, fx.dashStreakColor, 0.9).lineBetween(from.x, from.y - 2, s.x, s.y - 2);
+    this.tweens.add({ targets: seg, alpha: 0, duration: fx.dashStreakMs, onComplete: () => seg.destroy() });
+    view.dashFrom = { x: s.x, y: s.y };
+    // 風切線：身體後方，和移動方向平行
+    const ux = dx / len;
+    const uy = dy / len;
+    const midY = s.y - s.displayHeight / 2;
+    for (let k = -1; k <= 1; k++) {
+      const off = k * 6 + Math.sin(now / 30 + k) * 1.5; // 垂直方向錯開
+      const bx = s.x - ux * 10 - uy * off;
+      const by = midY - uy * 10 + ux * off;
+      const lineLen = 10 - Math.abs(k) * 3; // 中間那條最長
+      this.statusFx.lineStyle(1, 0xffffff, 0.7).lineBetween(bx, by, bx - ux * lineLen, by - uy * lineLen);
+    }
+  }
+
+  /** 衝刺起步、煞車：腳邊揚起一圈塵土（strength 越大越多越遠） */
+  spawnDashDust(x, y, strength) {
+    const count = Math.round(theme.meleeFx.dashDust * strength);
+    for (let k = 0; k < count; k++) {
+      const a = Math.random() * Math.PI * 2;
+      const d = (8 + Math.random() * 10) * strength;
+      const puff = this.add.circle(x, y - 1, 2 + Math.random() * 1.5, 0xc9b79c, 0.7).setDepth(y + 0.2);
+      this.tweens.add({
+        targets: puff, x: x + Math.cos(a) * d, y: y - 1 + Math.sin(a) * d * 0.4, // 地面是斜看的，上下壓扁
+        scale: 1.8, alpha: 0, duration: 280 + Math.random() * 120, ease: "Quad.easeOut", onComplete: () => puff.destroy(),
+      });
     }
   }
 

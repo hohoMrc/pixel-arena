@@ -182,6 +182,12 @@ export const theme = {
     cutColor: 0xff6b5c,    // 刀光外圈（裡面是白色）
     cutLength: 28,         // 刀光長度
     cutMs: 200,            // 刀光多久消失
+    // 劍士衝刺（技能編號 7）：紅色殘影、地上一道劍氣軌跡、起步揚塵、煞車揚塵
+    dashSkills: [7],
+    dashTint: 0xff6b5c,    // 殘影顏色
+    dashStreakColor: 0xffb199, // 地上的劍氣軌跡
+    dashStreakMs: 260,     // 軌跡多久消失
+    dashDust: 8,           // 起步、煞車時揚起幾團塵土
   },
 };
 
