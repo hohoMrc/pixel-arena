@@ -339,6 +339,30 @@ html, body {
   pointer-events: none;
 }
 .skill-0 .cost { top: 9px; }
+/* 按鍵提示：手機上不顯示；有滑鼠（可以 hover、指標精準）的電腦才顯示 */
+.skill .keycap { display: none; }
+@media (hover: hover) and (pointer: fine) {
+  /* 讓提示可以壓在按鈕下緣的外框上（冷卻遮罩改用圓角裁切，不靠 overflow） */
+  .skill { overflow: visible; }
+  .skill::after { border-radius: inherit; }
+  .skill .keycap {
+    display: block;
+    position: absolute;
+    bottom: -9px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2;
+    min-width: 16px;
+    padding: 0 4px;
+    font-size: 10px;
+    font-weight: bold;
+    line-height: 15px;
+    color: var(--text);
+    background: #14151d;
+    border: 1px solid color-mix(in srgb, var(--color) 70%, white);
+    border-radius: 4px;
+  }
+}
 /* 能量不夠：整顆變暗、標籤變紅 */
 .skill.no-energy { filter: saturate(0.3) brightness(0.7); }
 .skill.no-energy .cost { color: #ff8a8a; }

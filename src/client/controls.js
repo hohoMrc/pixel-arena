@@ -215,7 +215,10 @@ export class Controls {
       btn.className = `skill skill-${i}`; // 按鈕位置看格子編號（style.css）
       // 右上角的能量消耗標籤（沒有消耗的技能不顯示）
       const cost = skill.energyCost ? `<span class="cost">⚡${skill.energyCost}</span>` : "";
-      btn.innerHTML = `<span class="icon">${theme.skillIcons[skill.id] ?? "★"}</span><span class="label">${skill.name}</span>${cost}<span class="cd-text"></span>`;
+      // 下方的按鍵提示（只有電腦版顯示，見 style.css 的 .keycap）：顯示這格的第一個按鍵
+      const keyName = KEYS.skills[i]?.[0];
+      const keycap = keyName ? `<span class="keycap">${keyName.toUpperCase()}</span>` : "";
+      btn.innerHTML = `<span class="icon">${theme.skillIcons[skill.id] ?? "★"}</span><span class="label">${skill.name}</span>${cost}${keycap}<span class="cd-text"></span>`;
       btn.cdText = btn.querySelector(".cd-text");
 
       btn.addEventListener("contextmenu", (e) => e.preventDefault()); // 長按不跳選單
