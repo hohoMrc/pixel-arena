@@ -134,6 +134,10 @@ export const theme = {
     roarLines: 12,          // 往外噴的速度線
     roarDust: 14,           // 地上揚起的塵土
     knockTrail: { everyMs: 35, fadeMs: 260, alpha: 0.55, tint: 0xffd23f }, // 被震飛時的金色殘影
+    qiColor: 0xffd23f,      // 氣功波的光暈
+    qiCore: 0xfff6c8,       // 氣功波的核心（接近白色）
+    qiTrail: { everyMs: 25, fadeMs: 220 }, // 氣功波飛行的殘影
+    qiPierceLines: 8,       // 貫穿時往前噴的光線
   },
   /** 衝刺殘影：每幾毫秒留一個、殘影多久消失 */
   dashTrail: { everyMs: 30, fadeMs: 220, alpha: 0.5 },

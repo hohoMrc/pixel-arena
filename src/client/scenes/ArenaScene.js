@@ -151,6 +151,7 @@ export class ArenaScene extends Phaser.Scene {
       const now = performance.now();
       this.projectileViews.set(id, { sprite, shadow, x: p.x, y: p.y, at: now, sampleX: p.x, sampleY: p.y, sampleAt: now });
       this.playSfx(theme.skillSounds[p.skill]?.cast, p.owner === this.room.sessionId ? 1 : theme.othersVolume);
+      if (SKILLS[p.skill]?.pierce) this.spawnQiLaunch(p.x, p.y, Math.atan2(p.vy, p.vx));
     });
     callbacks.onRemove("projectiles", (_p, id) => {
       this.projectileViews.get(id)?.sprite.destroy();
@@ -606,6 +607,7 @@ export class ArenaScene extends Phaser.Scene {
     if (hit && theme.meleeFx.cutSkills?.includes(skill)) return this.spawnCut(x, y);
     if (area && SKILLS[skill]?.type === "root") return this.spawnVineBurst(x, y, SKILLS[skill].radius);
     if (SKILLS[skill]?.poison) return this.spawnPoisonSplat(x, y, hit);
+    if (SKILLS[skill]?.pierce) return this.spawnQiHit(x, y, hit);
     if (area) this.cameras.main.shake(100, 0.004);
     const tex = theme.impactTextures?.[skill] ?? "explosion";
     const key = `${big ? "impact-hit" : "impact-miss"}-${tex}`;
@@ -1131,6 +1133,76 @@ export class ArenaScene extends Phaser.Scene {
     view.sprite.setPosition(Math.round(pos.x), Math.round(pos.y)).setDepth(pos.y + 0.1); // 跟角色、柱子一樣依 y 排前後
     view.shadow.setPosition(Math.round(pos.x), Math.round(pos.y + SHADOW.projectile.offsetY));
     if (SKILLS[p.skill]?.poison) this.updatePoisonBall(view, now);
+    if (SKILLS[p.skill]?.pierce) this.updateQiBall(view, now);
+  }
+
+  /** 氣功波飛行中：外圍一圈會脈動的金色光暈、兩顆繞著轉的氣，後面拖著漸淡的殘影 */
+  updateQiBall(view, now) {
+    const fx = theme.monkFx;
+    const x = Math.round(view.x);
+    const y = Math.round(view.y);
+    const pulse = 1 + Math.sin(now / 50) * 0.15;
+    this.statusFx.fillStyle(fx.qiColor, 0.18).fillCircle(x, y, 11 * pulse);
+    this.statusFx.fillStyle(fx.qiColor, 0.3).fillCircle(x, y, 7 * pulse);
+    for (let k = 0; k < 2; k++) {
+      const a = now / 70 + k * Math.PI;
+      this.statusFx.fillStyle(fx.qiCore, 0.9).fillRect(Math.round(x + Math.cos(a) * 9) - 1, Math.round(y + Math.sin(a) * 6) - 1, 2, 2);
+    }
+    if (now < (view.nextTrailAt ?? 0)) return;
+    view.nextTrailAt = now + fx.qiTrail.everyMs;
+    const ghost = this.add.image(x, y, view.sprite.texture.key).setRotation(view.sprite.rotation)
+      .setDepth(view.sprite.depth - 0.05).setAlpha(0.5).setTint(fx.qiColor).setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({ targets: ghost, alpha: 0, scale: 0.4, duration: fx.qiTrail.fadeMs, onComplete: () => ghost.destroy() });
+  }
+
+  /** 氣功波出手：手前一圈金色氣爆，往前噴幾道光 */
+  spawnQiLaunch(x, y, angle) {
+    const fx = theme.monkFx;
+    const ring = this.add.circle(x, y, 4).setStrokeStyle(2, fx.qiColor, 1).setDepth(1001);
+    this.tweens.add({ targets: ring, scale: 3.5, alpha: 0, duration: 220, ease: "Quad.easeOut", onComplete: () => ring.destroy() });
+    this.spawnQiLines(x, y, angle, 4, 0.5, 14);
+  }
+
+  /** 從 (x,y) 沿著 angle（±spread 弧度內）噴出 count 道金色光線 */
+  spawnQiLines(x, y, angle, count, spread, length) {
+    const fx = theme.monkFx;
+    for (let k = 0; k < count; k++) {
+      const a = angle + (Math.random() - 0.5) * 2 * spread;
+      const len = length * (0.7 + Math.random() * 0.6);
+      const line = this.add.rectangle(x, y, len, 2, k % 2 ? fx.qiColor : fx.qiCore)
+        .setOrigin(0, 0.5).setRotation(a).setDepth(1001).setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({
+        targets: line, x: x + Math.cos(a) * len * 1.5, y: y + Math.sin(a) * len * 1.5,
+        scaleX: 0.2, alpha: 0, duration: 200 + Math.random() * 100, ease: "Quad.easeOut", onComplete: () => line.destroy(),
+      });
+    }
+  }
+
+  /**
+   * 氣功波打中：hit = 貫穿一個人（金色衝擊環 + 沿飛行方向往前噴光線，看得出「打穿了」）；
+   * 沒打中（撞牆、飛到底）= 氣散開成一圈光點。
+   */
+  spawnQiHit(x, y, hit) {
+    const fx = theme.monkFx;
+    const flash = this.add.circle(x, y, hit ? 10 : 6, fx.qiCore, 0.9).setDepth(1001).setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({ targets: flash, scale: 0.2, alpha: 0, duration: 160, onComplete: () => flash.destroy() });
+    const ring = this.add.ellipse(x, y, 8, 7).setStrokeStyle(2, fx.qiColor, 1).setDepth(1001);
+    this.tweens.add({ targets: ring, scale: hit ? 4.5 : 3, alpha: 0, duration: 260, ease: "Quad.easeOut", onComplete: () => ring.destroy() });
+    if (hit) {
+      // 飛行方向：找離打中點最近的氣功波（它還在繼續飛）
+      let angle = Math.random() * Math.PI * 2;
+      let best = Infinity;
+      for (const [id, p] of this.room.state.projectiles) {
+        const view = this.projectileViews.get(id);
+        if (!view || !SKILLS[p.skill]?.pierce) continue;
+        const d = (view.x - x) ** 2 + (view.y - y) ** 2;
+        if (d < best) { best = d; angle = Math.atan2(p.vy, p.vx); }
+      }
+      this.spawnQiLines(x, y, angle, fx.qiPierceLines, 0.35, 18);
+      this.cameras.main.shake(70, 0.003);
+    } else {
+      this.spawnQiLines(x, y, 0, 6, Math.PI, 8); // 往四面八方散開
+    }
   }
 
   /** 毒液彈飛行中：一團會晃動的毒液，沿路滴下毒液（落到地上濺開） */
