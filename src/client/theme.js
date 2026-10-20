@@ -144,6 +144,21 @@ export const theme = {
   },
   /** 衝刺殘影：每幾毫秒留一個、殘影多久消失 */
   dashTrail: { everyMs: 30, fadeMs: 220, alpha: 0.5 },
+  /** 一般衝刺依角色換顏色：殘影顏色、沿路灑出的粒子顏色（索引 = skin；紅劍士有自己的，見 meleeFx） */
+  dashFx: {
+    0: { tint: 0x7fb8ff, particles: [0xcfe8ff, 0x7fb8ff, 0xffffff] }, // 藍法師：藍色魔力星點
+    2: { tint: 0x6dd35a, particles: [0x8be36b, 0x3fbf4a] },           // 綠巫師：綠葉
+    3: { tint: 0xffd23f, particles: [0xfff6c8, 0xffd23f] },           // 金武僧：金色氣
+  },
+  /** 藍法師的火系技能（火球、爆炎、流星雨） */
+  fireFx: {
+    skills: [0, 1, 3],
+    embers: [0xffe27a, 0xff9a3c, 0xff4d2e], // 火星的顏色（亮 → 暗）
+    emberEveryMs: 28,      // 火球飛行時多久噴一顆火星
+    scorchMs: 1500,        // 地上焦痕多久消失
+    runeColor: 0xffb04a,   // 預告圈裡的魔法陣
+    meteorSlant: 0.55,     // 流星斜著掉：水平位移 / 落下高度
+  },
   /** 別人的聲音（施放、死亡）音量，自己的是 1 */
   othersVolume: 0.5,
 

@@ -310,10 +310,18 @@ export class ArenaScene extends Phaser.Scene {
       const t = Math.min(1, (now - view.startAt) / view.fuseMs);
       this.blastGraphics.lineStyle(1, color, BLAST_FX.ringAlpha).strokeCircle(b.x, b.y, radius);
       this.blastGraphics.fillStyle(color, BLAST_FX.fillAlpha).fillCircle(b.x, b.y, radius * t);
-      // 加速落下（t²），越接近爆炸掉越快
-      view.fireball?.setPosition(Math.round(b.x), Math.round(b.y - BLAST_FX.dropHeight * (1 - t * t)));
+      // 加速落下（t²），越接近爆炸掉越快；流星斜著掉
+      const fall = BLAST_FX.dropHeight * (1 - t * t);
+      const slant = SKILLS[b.skill].type === "meteor" ? theme.fireFx.meteorSlant : 0;
+      if (view.fireball) {
+        view.fireball.setPosition(Math.round(b.x - fall * slant), Math.round(b.y - fall)).setRotation(Math.atan2(1, slant));
+      }
       view.shadow.setAlpha(SHADOW.projectile.alpha * 1.5 * t).setScale(0.6 + t);
       if (SKILLS[b.skill].type === "root") this.drawRootWarning(b.x, b.y, radius, t, now);
+      if (theme.fireFx.skills.includes(b.skill)) {
+        this.drawRuneCircle(b.x, b.y, radius, t, now);
+        if (view.fireball) this.trailEmbers(view, view.fireball.x, view.fireball.y, now, 2);
+      }
     }
   }
 
@@ -617,6 +625,7 @@ export class ArenaScene extends Phaser.Scene {
     const fx = this.add.sprite(x, y, tex).setScale(scale).setDepth(1001);
     fx.play(key);
     fx.once("animationcomplete", () => fx.destroy());
+    if (theme.fireFx.skills.includes(skill)) this.spawnFireExtras(x, y, area ? SKILLS[skill].radius / 8 : 1, big);
   }
 
   /**
@@ -631,21 +640,21 @@ export class ArenaScene extends Phaser.Scene {
     const fx = theme.meleeFx;
     const swordDash = fx.dashSkills.includes(kitSkill(player.skin, DASH_SLOT)?.id);
     const s = view.sprite;
+    const skinDash = theme.dashFx[player.skin]; // 其他角色：依角色換顏色、沿路灑粒子
     if (dashing && !view.wasDashing) {
       this.playSfx(theme.skillSounds[DASH_INDEX]?.cast, isSelf ? 1 : theme.othersVolume);
-      if (swordDash) {
-        view.dashFrom = { x: s.x, y: s.y };
-        this.spawnDashDust(s.x, s.y, 1);
-      }
+      view.dashFrom = { x: s.x, y: s.y };
+      this.spawnDashDust(s.x, s.y, swordDash ? 1 : 0.6);
     }
-    if (!dashing && view.wasDashing && swordDash && player.alive) this.spawnDashDust(s.x, s.y, 0.6); // 煞車
+    if (!dashing && view.wasDashing && player.alive) this.spawnDashDust(s.x, s.y, swordDash ? 0.6 : 0.4); // 煞車
     if (dashing && swordDash) this.drawDashStreak(view, now);
+    if (dashing && !swordDash && skinDash) this.spawnDashParticles(s, skinDash.particles);
     view.wasDashing = dashing;
 
     // 被獅子吼震飛時也留殘影（金色），看得出是被打飛的
     const knockTicks = isSelf ? this.predict.value(player, "knockTicks") : player.knockTicks;
     const knocked = knockTicks > 0 && player.alive;
-    const dashTint = swordDash ? fx.dashTint : 0x9fdcff;
+    const dashTint = swordDash ? fx.dashTint : skinDash?.tint ?? 0x9fdcff;
     const trail = knocked ? theme.monkFx.knockTrail : dashing ? { ...theme.dashTrail, tint: dashTint } : null;
     if (trail && now >= view.nextTrailAt) {
       view.nextTrailAt = now + trail.everyMs;
@@ -684,6 +693,20 @@ export class ArenaScene extends Phaser.Scene {
       const by = midY - uy * 10 + ux * off;
       const lineLen = 10 - Math.abs(k) * 3; // 中間那條最長
       this.statusFx.lineStyle(1, 0xffffff, 0.7).lineBetween(bx, by, bx - ux * lineLen, by - uy * lineLen);
+    }
+  }
+
+  /** 一般衝刺中：身體周圍灑出角色顏色的小粒子（藍色星點、綠葉、金色氣），往後飄散 */
+  spawnDashParticles(s, colors) {
+    for (let k = 0; k < 2; k++) {
+      const px = s.x + (Math.random() - 0.5) * 14;
+      const py = s.y - Math.random() * s.displayHeight;
+      const dot = this.add.rectangle(px, py, 2, 2, colors[Math.floor(Math.random() * colors.length)])
+        .setDepth(s.depth - 0.05).setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({
+        targets: dot, x: px + (Math.random() - 0.5) * 10, y: py - 4 - Math.random() * 6,
+        alpha: 0, duration: 300 + Math.random() * 200, onComplete: () => dot.destroy(),
+      });
     }
   }
 
@@ -1376,6 +1399,87 @@ export class ArenaScene extends Phaser.Scene {
     view.shadow.setPosition(Math.round(pos.x), Math.round(pos.y + SHADOW.projectile.offsetY));
     if (SKILLS[p.skill]?.poison) this.updatePoisonBall(view, now);
     if (SKILLS[p.skill]?.pierce) this.updateQiBall(view, now);
+    if (theme.fireFx.skills.includes(p.skill)) this.updateFireball(view, now);
+  }
+
+  /** 火球飛行中：外圍一圈閃爍的火光，後面拖著往上飄的火星 */
+  updateFireball(view, now) {
+    const fx = theme.fireFx;
+    const flicker = 1 + Math.sin(now / 35) * 0.12 + Math.sin(now / 53) * 0.08;
+    this.statusFx.fillStyle(fx.embers[1], 0.22).fillCircle(Math.round(view.x), Math.round(view.y), 9 * flicker);
+    this.trailEmbers(view, view.x, view.y, now, 1);
+  }
+
+  /** 沿路噴火星：每隔 emberEveryMs 在 (x,y) 留下幾顆，往上飄、變暗、淡掉 */
+  trailEmbers(view, x, y, now, count) {
+    const fx = theme.fireFx;
+    if (now < (view.nextEmberAt ?? 0)) return;
+    view.nextEmberAt = now + fx.emberEveryMs;
+    for (let k = 0; k < count; k++) {
+      const ember = this.add.rectangle(x + (Math.random() - 0.5) * 6, y + (Math.random() - 0.5) * 6, 2, 2, fx.embers[0])
+        .setDepth(1000).setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({
+        targets: ember, x: ember.x + (Math.random() - 0.5) * 8, y: ember.y - 6 - Math.random() * 8, alpha: 0,
+        duration: 300 + Math.random() * 200, onComplete: () => ember.destroy(),
+        onUpdate: (tw) => ember.setFillStyle(tw.progress < 0.4 ? fx.embers[0] : tw.progress < 0.7 ? fx.embers[1] : fx.embers[2]),
+      });
+    }
+  }
+
+  /** 火系的預告圈：圈裡一個慢慢轉的魔法陣（兩個反向旋轉的三角形 + 刻度環），越接近爆炸越亮越快 */
+  drawRuneCircle(x, y, radius, t, now) {
+    const g = this.blastGraphics;
+    const fx = theme.fireFx;
+    const spin = (now / 1000) * (1 + 3 * t);
+    const r = radius * 0.78;
+    g.lineStyle(1, fx.runeColor, 0.35 + 0.5 * t);
+    for (const dir of [1, -1]) {
+      const pts = [0, 1, 2].map((k) => {
+        const a = dir * spin + (k * Math.PI * 2) / 3 - Math.PI / 2;
+        return { x: x + Math.cos(a) * r, y: y + Math.sin(a) * r };
+      });
+      g.strokePoints(pts, true);
+    }
+    // 刻度環：一圈短線
+    const ticks = 12;
+    for (let k = 0; k < ticks; k++) {
+      const a = -spin * 0.5 + (k * Math.PI * 2) / ticks;
+      g.lineBetween(x + Math.cos(a) * (radius - 4), y + Math.sin(a) * (radius - 4), x + Math.cos(a) * (radius - 1), y + Math.sin(a) * (radius - 1));
+    }
+  }
+
+  /**
+   * 火系命中的附加效果（爆炸圖之外）：一圈衝擊波、四散的火星、地上一塊焦痕慢慢淡掉。
+   * size：1 = 火球打中，越大越誇張（爆炎、流星依範圍放大）；沒打中只冒一點火星。
+   */
+  spawnFireExtras(x, y, size, hit) {
+    const fx = theme.fireFx;
+    if (!hit) {
+      this.spawnEmberBurst(x, y, 4, 8);
+      return;
+    }
+    const scorch = this.add.ellipse(x, y + 2, 16 * size, 7 * size, 0x1a0f0a, 0.45).setDepth(SHADOW.depth + 0.25);
+    const glow = this.add.ellipse(x, y + 2, 18 * size, 8 * size).setStrokeStyle(1, fx.embers[2], 0.8).setDepth(SHADOW.depth + 0.26);
+    this.tweens.add({ targets: scorch, alpha: 0, delay: fx.scorchMs * 0.4, duration: fx.scorchMs * 0.6, onComplete: () => scorch.destroy() });
+    this.tweens.add({ targets: glow, alpha: 0, duration: fx.scorchMs * 0.35, onComplete: () => glow.destroy() });
+    const ring = this.add.circle(x, y, 6 * size).setStrokeStyle(2, fx.embers[0], 0.9).setDepth(1001);
+    this.tweens.add({ targets: ring, scale: 2.2, alpha: 0, duration: 260, ease: "Quad.easeOut", onComplete: () => ring.destroy() });
+    this.spawnEmberBurst(x, y, Math.round(8 * Math.sqrt(size)), 14 * size);
+  }
+
+  /** 火星往四周噴開，再往下掉一點（有重量感） */
+  spawnEmberBurst(x, y, count, spread) {
+    const fx = theme.fireFx;
+    for (let k = 0; k < count; k++) {
+      const a = Math.random() * Math.PI * 2;
+      const d = spread * (0.5 + Math.random() * 0.7);
+      const ember = this.add.rectangle(x, y, 2, 2, fx.embers[k % 2]).setDepth(1002).setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({
+        targets: ember, x: x + Math.cos(a) * d,
+        y: { value: y + Math.sin(a) * d * 0.7 + 6, ease: "Quad.easeIn" },
+        alpha: 0, duration: 350 + Math.random() * 250, onComplete: () => ember.destroy(),
+      });
+    }
   }
 
   /** 氣功波飛行中：外圍一圈會脈動的金色光暈、兩顆繞著轉的氣，後面拖著漸淡的殘影 */
