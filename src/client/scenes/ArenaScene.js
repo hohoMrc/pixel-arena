@@ -1,6 +1,6 @@
 import * as Phaser from "phaser";
 import { Callbacks } from "@colyseus/sdk";
-import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, maxHpOf, SKILLS, DASH_INDEX, DASH_SLOT, kitSkill, isTargeted, TICK_RATE, INPUT_SCALE, ENERGY, PILLAR } from "../../shared/constants.js";
+import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, maxHpOf, RAGE, SKILLS, DASH_INDEX, DASH_SLOT, kitSkill, isTargeted, TICK_RATE, INPUT_SCALE, ENERGY, PILLAR } from "../../shared/constants.js";
 import { theme, playerTextureKey, walkTextureKey, facingTextureKey, IDLE_FRAME } from "../theme.js";
 import { createMissingTextures } from "../placeholders.js";
 import { OBSTACLE_RECTS, circleHitsObstacle } from "../../shared/obstacles.js";
@@ -131,7 +131,7 @@ export class ArenaScene extends Phaser.Scene {
       this.playerViews.set(id, {
         sprite, label, shadow, lastX: player.x, lastY: player.y, walkUntil: 0,
         lastHp: player.hp, lastAlive: player.alive, flashUntil: 0, jitterUntil: 0,
-        wasDashing: false, nextTrailAt: 0,
+        wasDashing: false, nextTrailAt: 0, lastKills: player.kills, killTimes: [],
       });
     });
     callbacks.onRemove("players", (_player, id) => {
@@ -235,6 +235,7 @@ export class ArenaScene extends Phaser.Scene {
     }
     this.roundOverlay.update();
     if (phase === "countdown" && this.lastPhase !== "countdown") this.controls.resetCooldowns();
+    if (phase === "ended" && this.lastPhase && this.lastPhase !== "ended") this.spawnVictory(this.room.state.winner);
     this.lastPhase = phase;
     this.controls.updateCooldowns(now, {
       dashCd: self ? this.predict.value(self, "dashCd") : 0,
@@ -245,9 +246,14 @@ export class ArenaScene extends Phaser.Scene {
     this.bars.clear();
     this.floorFx.clear();
     this.statusFx.clear();
+    const killers = []; // 這一幀殺了人的、死掉的（湊成擊殺訊息）
+    const victims = [];
     for (const [id, player] of this.room.state.players) {
       const view = this.playerViews.get(id);
       if (!view) continue;
+      if (player.kills > view.lastKills) killers.push(id);
+      view.lastKills = player.kills;
+      if (!player.alive && view.lastAlive) victims.push(id);
 
       // 自己是「預測位置」，其他人是「插值位置」，讀法都一樣
       const x = this.predict.value(player, "x");
@@ -291,8 +297,10 @@ export class ArenaScene extends Phaser.Scene {
       view.label.setPosition(Math.round(x), headY - 4).setDepth(feetY + 0.5);
       view.shadow.setPosition(Math.round(x), feetY).setAlpha(player.alive ? SHADOW.player.alpha : SHADOW.player.alpha * 0.4);
 
+      this.drawUltReady(view, player, x, feetY, isSelf, now);
       if (player.alive) this.drawHpBar(x, headY, player.hp / maxHpOf(player.skin), isSelf ? player.energy / ENERGY.max : null);
     }
+    killers.forEach((killer, i) => this.onKill(killer, victims[i], now));
 
     for (const [id, p] of this.room.state.projectiles) {
       const view = this.projectileViews.get(id);
@@ -597,6 +605,139 @@ export class ArenaScene extends Phaser.Scene {
     navigator.vibrate?.(died ? HIT_FEEDBACK.deathVibrateMs : HIT_FEEDBACK.vibrateMs);
   }
 
+  /**
+   * 大招集滿：腳下一圈角色顏色的光環（脈動、兩顆光點繞著轉），身上不時冒出光點往上飄。
+   * 集滿的瞬間爆一圈光；自己的話頭上跳「大招就緒！」。
+   */
+  drawUltReady(view, player, x, feetY, isSelf, now) {
+    const ready = player.rage >= RAGE.max && player.alive;
+    const color = theme.skinColors[player.skin] ?? 0xffffff;
+    const cx = Math.round(x);
+    if (ready && !view.ultReady) {
+      const ring = this.add.ellipse(cx, feetY, 20, 7).setStrokeStyle(2, color, 1).setDepth(SHADOW.depth + 0.3);
+      this.tweens.add({ targets: ring, scale: 3, alpha: 0, duration: 400, ease: "Quad.easeOut", onComplete: () => ring.destroy() });
+      if (isSelf) this.spawnFloatText(cx, feetY - view.sprite.height - 6, "大招就緒！", "#ffe066", 9);
+    }
+    view.ultReady = ready;
+    if (!ready) return;
+    const pulse = 0.5 + 0.5 * Math.sin(now / 160);
+    this.floorFx.fillStyle(color, 0.12 + 0.12 * pulse).fillEllipse(cx, feetY, 30, 10);
+    this.floorFx.lineStyle(1, color, 0.6 + 0.4 * pulse).strokeEllipse(cx, feetY, 30 + pulse * 3, 10 + pulse);
+    for (let k = 0; k < 2; k++) {
+      const a = now / 250 + k * Math.PI;
+      this.floorFx.fillStyle(0xffffff, 0.9).fillRect(Math.round(cx + Math.cos(a) * 15) - 1, Math.round(feetY + Math.sin(a) * 5) - 1, 2, 2);
+    }
+    if (now >= (view.nextUltSparkAt ?? 0)) {
+      view.nextUltSparkAt = now + 140;
+      const px = cx + (Math.random() - 0.5) * 18;
+      const dot = this.add.rectangle(px, feetY - 2, 2, 2, color).setDepth(feetY + 0.3).setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({ targets: dot, y: feetY - 20 - Math.random() * 14, alpha: 0, duration: 600, onComplete: () => dot.destroy() });
+    }
+  }
+
+  /** 有人擊殺：畫面上方加一條「A 擊倒 B」，擊殺者頭上跳「擊殺！」（短時間連殺變「雙殺！」…） */
+  onKill(killerId, victimId, now) {
+    const fx = theme.killFx;
+    const players = this.room.state.players;
+    const killer = players.get(killerId);
+    const view = this.playerViews.get(killerId);
+    if (!killer || !view) return;
+    view.killTimes = view.killTimes.filter((t) => now - t < fx.streakMs);
+    view.killTimes.push(now);
+    const word = fx.streakWords[Math.min(view.killTimes.length, fx.streakWords.length) - 1];
+    const s = view.sprite;
+    this.spawnFloatText(s.x, s.y - s.displayHeight - 8, word, view.killTimes.length > 1 ? "#ff9af0" : "#ffd23f", view.killTimes.length > 1 ? 13 : 11);
+    const victim = players.get(victimId);
+    this.addKillFeed(killer.name, killerId === this.room.sessionId, victim?.name ?? "?", victimId === this.room.sessionId);
+  }
+
+  /** 擊殺訊息：固定在畫面上方中間（不跟鏡頭動），新的在最上面，舊的往下推，過幾秒淡掉 */
+  addKillFeed(killerName, killerIsMe, victimName, victimIsMe) {
+    const fx = theme.killFx;
+    this.killFeed ??= [];
+    const style = (me) => ({
+      fontFamily: "monospace", fontSize: "9px", fontStyle: "bold", color: me ? "#ffe066" : "#ffffff",
+      stroke: "#000000", strokeThickness: 3, resolution: 4,
+    });
+    // 一條訊息 = 擊殺者 + 「擊倒」 + 被擊倒者，用一個 container 包起來一起移動
+    const a = this.add.text(0, 0, killerName, style(killerIsMe)).setOrigin(0, 0.5);
+    const mid = this.add.text(0, 0, " ⚔ ", { ...style(false), color: "#ff8a6b" }).setOrigin(0, 0.5);
+    const b = this.add.text(0, 0, victimName, style(victimIsMe)).setOrigin(0, 0.5);
+    mid.x = a.width;
+    b.x = a.width + mid.width;
+    const total = b.x + b.width;
+    for (const t of [a, mid, b]) t.x -= total / 2;
+    const row = this.add.container(theme.viewport.width / 2, 14, [a, mid, b]).setScrollFactor(0).setDepth(2000).setAlpha(0);
+    this.tweens.add({ targets: row, alpha: 1, duration: 120 });
+    this.killFeed.unshift(row);
+    // 超過上限的最舊那條直接拿掉
+    while (this.killFeed.length > fx.feedMax) {
+      const oldest = this.killFeed.pop();
+      this.tweens.killTweensOf(oldest);
+      oldest.destroy();
+    }
+    this.killFeed.forEach((r, i) => this.tweens.add({ targets: r, y: 14 + i * 13, duration: 120 }));
+    this.time.delayedCall(fx.feedMs, () => {
+      if (!row.active) return;
+      this.tweens.add({
+        targets: row, alpha: 0, duration: 300,
+        onComplete: () => {
+          this.killFeed = this.killFeed.filter((r) => r !== row);
+          row.destroy();
+        },
+      });
+    });
+  }
+
+  /** 勝利：獲勝者身上打下金色光柱，畫面裡接連放煙火 */
+  spawnVictory(winnerId) {
+    const fx = theme.killFx;
+    const view = this.playerViews.get(winnerId);
+    if (view) this.spawnRespawnBeam(view.sprite.x, view.sprite.y, 0xffd23f);
+    const cam = this.cameras.main;
+    for (let k = 0; k < fx.fireworks; k++) {
+      this.time.delayedCall(150 + k * 220, () => {
+        const x = cam.worldView.x + cam.worldView.width * (0.15 + Math.random() * 0.7);
+        const y = cam.worldView.y + cam.worldView.height * (0.15 + Math.random() * 0.4);
+        this.spawnFirework(x, y, fx.fireworkColors[k % fx.fireworkColors.length]);
+      });
+    }
+  }
+
+  /** 一發煙火：從下面射上來一道光，到頂炸成一圈往外散、往下掉的光點 */
+  spawnFirework(x, y, color) {
+    const startY = y + 80;
+    const rocket = this.add.rectangle(x, startY, 2, 6, 0xffffff).setDepth(2001).setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: rocket, y, duration: 320, ease: "Quad.easeOut",
+      onComplete: () => {
+        rocket.destroy();
+        this.playSfx("pillar_hit", 0.25); // 小小的「砰」
+        const flash = this.add.circle(x, y, 8, 0xffffff, 1).setDepth(2001).setBlendMode(Phaser.BlendModes.ADD);
+        this.tweens.add({ targets: flash, scale: 3, alpha: 0, duration: 220, onComplete: () => flash.destroy() });
+        // 兩層：外圈大顆的彩色、內圈小顆的白色，看起來比較有層次
+        for (const [count, reach, size, c] of [[32, 50, 3, color], [16, 26, 2, 0xffffff]]) {
+          for (let k = 0; k < count; k++) {
+            const a = (k / count) * Math.PI * 2 + Math.random() * 0.1;
+            const d = reach * (0.85 + Math.random() * 0.3);
+            const spark = this.add.rectangle(x, y, size, size, c).setDepth(2001).setBlendMode(Phaser.BlendModes.ADD);
+            const anim = { t: 0 };
+            this.tweens.add({
+              targets: anim, t: 1, duration: 900 + Math.random() * 400,
+              onUpdate: () => {
+                // 往外散是先快後慢（圓形炸開），再加上越來越快的往下掉（重力）
+                const out = 1 - (1 - anim.t) ** 3;
+                spark.setPosition(x + Math.cos(a) * d * out, y + Math.sin(a) * d * out + 20 * anim.t * anim.t);
+                spark.setAlpha(1 - anim.t ** 2);
+              },
+              onComplete: () => spark.destroy(),
+            });
+          }
+        }
+      },
+    });
+  }
+
   /** 頭上浮起一段字（傷害數字、格擋…）：先彈大一下，再往上飄、淡掉 */
   spawnFloatText(x, y, text, color, size = 10) {
     const t = this.add.text(Math.round(x + (Math.random() - 0.5) * 12), Math.round(y), text, {
@@ -661,13 +802,7 @@ export class ArenaScene extends Phaser.Scene {
     s.setAngle(0).setAlpha(1).setScale(1, 0.2);
     this.tweens.add({ targets: s, scaleY: 1, duration: 260, ease: "Back.easeOut" });
     view.deadPose = false;
-    // 光柱：外層角色色、裡面白色，從上往下打下來後變細消失
-    for (const [w, c, a] of [[18, color, 0.55], [6, 0xffffff, 0.9]]) {
-      const beam = this.add.rectangle(x, feetY, w, 120, c, a).setOrigin(0.5, 1).setDepth(1002)
-        .setBlendMode(Phaser.BlendModes.ADD).setScale(1, 0);
-      this.tweens.add({ targets: beam, scaleY: 1, duration: 120, ease: "Quad.easeOut" });
-      this.tweens.add({ targets: beam, scaleX: 0, alpha: 0, delay: 150, duration: 380, ease: "Quad.easeIn", onComplete: () => beam.destroy() });
-    }
+    this.spawnRespawnBeam(x, feetY, color);
     const ring = this.add.ellipse(x, feetY, 16, 6).setStrokeStyle(2, color, 1).setDepth(SHADOW.depth + 0.3);
     this.tweens.add({ targets: ring, scale: 3.5, alpha: 0, duration: 450, ease: "Quad.easeOut", onComplete: () => ring.destroy() });
     // 光點往上飄
@@ -679,6 +814,16 @@ export class ArenaScene extends Phaser.Scene {
         targets: dot, y: dot.y - 20 - Math.random() * 24, alpha: 0,
         delay: 100 + Math.random() * 200, duration: 500 + Math.random() * 300, onComplete: () => dot.destroy(),
       });
+    }
+  }
+
+  /** 光柱：外層指定顏色、裡面白色，從上往下打下來後變細消失（復活、勝利用） */
+  spawnRespawnBeam(x, feetY, color) {
+    for (const [w, c, a] of [[18, color, 0.55], [6, 0xffffff, 0.9]]) {
+      const beam = this.add.rectangle(x, feetY, w, 120, c, a).setOrigin(0.5, 1).setDepth(1002)
+        .setBlendMode(Phaser.BlendModes.ADD).setScale(1, 0);
+      this.tweens.add({ targets: beam, scaleY: 1, duration: 120, ease: "Quad.easeOut" });
+      this.tweens.add({ targets: beam, scaleX: 0, alpha: 0, delay: 150, duration: 380, ease: "Quad.easeIn", onComplete: () => beam.destroy() });
     }
   }
 

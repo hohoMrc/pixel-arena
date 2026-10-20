@@ -144,6 +144,15 @@ export const theme = {
   },
   /** 每個角色的代表色（死亡碎片、復活光柱用），索引 = skin */
   skinColors: [0x7fb8ff, 0xff6b5c, 0x6dd35a, 0xffd23f],
+  /** 擊殺訊息、連殺、勝利煙火 */
+  killFx: {
+    feedMax: 3,             // 畫面上方最多同時幾條擊殺訊息
+    feedMs: 3500,           // 每條停留多久
+    streakMs: 5000,         // 幾毫秒內再殺一個算連殺
+    streakWords: ["擊殺！", "雙殺！", "三殺！", "大殺特殺！"],
+    fireworks: 10,          // 勝利時放幾發煙火
+    fireworkColors: [0xffd23f, 0xff6b5c, 0x7fb8ff, 0x6dd35a, 0xffffff, 0xff9af0],
+  },
   /** 傷害數字 */
   damageText: {
     selfColor: "#ff5c5c",   // 自己被打
