@@ -6,6 +6,39 @@ const STORAGE_KEY = "pixel-arena:profile";
 /** 目前這次 showLobby 的選角色函式（角色卡片只綁一次 click，透過它找到這次的狀態） */
 let selectSkin = () => {};
 
+/** 呼吸動畫：腳底這幾列不動，上面的身體往下沉 1 像素 */
+const BREATH_LEG_ROWS = 5;
+
+/**
+ * 角色卡片的呼吸動畫（像素遊戲常見的待機動作）。
+ * 用原圖做出兩格橫排圖：第 1 格是原圖，第 2 格是上半身往下沉 1 像素、腳不動，
+ * 再用 CSS 每半拍切換一格。圖片載入失敗時就顯示靜態圖。
+ * @param {HTMLElement} el 顯示角色的元素（用 background-image）
+ * @param {string} path 角色圖路徑
+ * @param {number} i 第幾個角色，用來錯開節奏，四個角色才不會一起動
+ */
+function setupBreathing(el, path, i) {
+  if (!path) return;
+  el.style.backgroundImage = `url("${path}")`;
+  const img = new Image();
+  img.onload = () => {
+    const { naturalWidth: w, naturalHeight: h } = img;
+    const canvas = document.createElement("canvas");
+    canvas.width = w * 2;
+    canvas.height = h;
+    const g = canvas.getContext("2d");
+    g.drawImage(img, 0, 0);
+    // 第 2 格：先畫不動的腳，再把上半身整塊往下 1 像素疊上去
+    const split = h - BREATH_LEG_ROWS;
+    g.drawImage(img, 0, split, w, BREATH_LEG_ROWS, w, split, w, BREATH_LEG_ROWS);
+    g.drawImage(img, 0, 0, w, split, w, 1, w, split);
+    el.style.backgroundImage = `url("${canvas.toDataURL()}")`;
+    el.style.animationDelay = `${-i * 0.37}s`;
+    el.classList.add("breathing");
+  };
+  img.src = path;
+}
+
 /**
  * 進場畫面：輸入名稱、選角色，再選怎麼進場：
  *   quick  快速配對（有空位的公開房間就加入，沒有就開新的）
@@ -52,9 +85,8 @@ export function showLobby(form, error = "") {
       const card = document.createElement("button");
       card.type = "button";
       card.className = "skin-card";
-      card.innerHTML = `<img alt="" src="${theme.assets[playerTextureKey(i)]?.path ?? ""}"><span>${theme.skins?.[i] ?? `角色 ${i + 1}`}</span>`;
-      // 呼吸動畫錯開時間，四個角色才不會一起動
-      card.querySelector("img").style.animationDelay = `${-i * 0.37}s`;
+      card.innerHTML = `<i class="skin-sprite"></i><span>${theme.skins?.[i] ?? `角色 ${i + 1}`}</span>`;
+      setupBreathing(card.querySelector(".skin-sprite"), theme.assets[playerTextureKey(i)]?.path, i);
       card.addEventListener("click", () => selectSkin(i));
       skinsEl.appendChild(card);
     }

@@ -122,26 +122,26 @@ html, body {
   align-items: center;
   gap: 4px;
 }
-.skin-card img {
+.skin-sprite {
+  display: block;
   width: 48px;
   height: 60px;
+  background: no-repeat 0 0 / 48px 60px;
   image-rendering: pixelated;
-  /* 呼吸：以腳底為軸，吸氣時稍微變高變瘦 */
-  transform-origin: 50% 100%;
-  animation: breathe 1.6s ease-in-out infinite;
 }
-/* 選中的角色呼吸得快一點、明顯一點，像在準備出戰 */
-.skin-card.selected img { animation-name: breathe-ready; animation-duration: 1s; }
+/* 呼吸：兩格橫排圖（原圖、上半身下沉 1 像素）輪流顯示，用 step-end 直接跳格不補間 */
+.skin-sprite.breathing {
+  background-size: 96px 60px;
+  animation: breathe 1.4s step-end infinite;
+}
+/* 選中的角色呼吸快一點，像在準備出戰 */
+.skin-card.selected .skin-sprite.breathing { animation-duration: 0.9s; }
 @keyframes breathe {
-  0%, 100% { transform: scale(1, 1); }
-  50% { transform: scale(0.97, 1.04); }
-}
-@keyframes breathe-ready {
-  0%, 100% { transform: scale(1.02, 0.97); }
-  50% { transform: scale(0.96, 1.06); }
+  0% { background-position: 0 0; }
+  50% { background-position: -48px 0; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .skin-card img { animation: none; }
+  .skin-sprite.breathing { animation: none; }
 }
 .skin-card.selected { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, var(--panel)); }
 #lobby-kit { font-size: 13px; color: var(--muted); min-height: 1.2em; margin-top: -4px; }
