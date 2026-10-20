@@ -648,7 +648,7 @@ export class ArenaScene extends Phaser.Scene {
 
   /**
    * 紅劍士的持續型技能（伺服器狀態，所有人都看得到）：
-   *   舉盾 → 身體前方一道藍色弧線
+   *   舉盾 → 身體前方一面弧形的能量盾（展開、反光、擋下時變白、放下時散掉）
    *   旋風斬 → 地上一圈旋轉的刀光，角色快速左右翻面
    */
   updateMelee(view, player, x, y, isSelf, now) {
@@ -658,16 +658,24 @@ export class ArenaScene extends Phaser.Scene {
     const cy = Math.round(y) - 4; // 身體中間（碰撞圓心在腳底上方一點）
 
     const guarding = player.guardTicks > 0 && player.alive;
-    if (guarding && !view.wasGuarding) this.playSfx("guard", volume);
+    const guard = SKILLS.find((s) => s.type === "guard");
+    const half = (guard.arcDeg / 2) * (Math.PI / 180);
+    if (guarding) view.guardAngle = Math.atan2(player.guardY, player.guardX);
+    if (guarding && !view.wasGuarding) {
+      this.playSfx("guard", volume);
+      view.guardStart = now;
+    }
+    if (!guarding && view.wasGuarding) this.spawnShieldDrop(cx, cy, view.guardAngle, half);
     view.wasGuarding = guarding;
     if (guarding) {
-      const angle = Math.atan2(player.guardY, player.guardX);
-      const guard = SKILLS.find((s) => s.type === "guard");
-      const half = (guard.arcDeg / 2) * (Math.PI / 180);
       // 快結束時閃爍，提醒盾牌要放下了
       const fading = player.guardTicks < 8 && Math.floor(now / 60) % 2 === 0;
-      this.statusFx.lineStyle(3, fx.guardColor, fading ? 0.35 : 0.9);
-      this.statusFx.beginPath().arc(cx, cy, PLAYER_HALF + 8, angle - half, angle + half).strokePath();
+      const raise = Math.min(1, (now - view.guardStart) / fx.guardRaiseMs);
+      const flash = now < (view.blockFlashUntil ?? 0); // 剛擋下攻擊：整面變白、往後縮一下
+      this.drawShield(this.statusFx, cx, cy, view.guardAngle, half * (0.4 + 0.6 * raise), {
+        radius: PLAYER_HALF + 8 - (flash ? 2 : 0) - (1 - raise) * 4, // 展開時從身邊往外推
+        alpha: fading ? 0.4 : 1, flash, now,
+      });
     }
 
     const whirling = player.whirlTicks > 0 && player.alive;
@@ -1188,15 +1196,92 @@ export class ArenaScene extends Phaser.Scene {
   }
 
   /** 盾牌擋下攻擊：盾牌位置冒一圈火花 */
+  /**
+   * 弧形能量盾：內外兩條弧之間填半透明的藍，外緣一條亮邊，中間幾條肋紋，
+   * 一道反光沿著盾面來回掃。flash = 剛擋下攻擊（整面變白）。
+   */
+  drawShield(g, cx, cy, angle, half, { radius, alpha = 1, flash = false, now = 0 }) {
+    const fx = theme.meleeFx;
+    const rIn = radius - 3;
+    const rOut = radius + 2;
+    const steps = 12;
+    const arcPts = (r) => Array.from({ length: steps + 1 }, (_, i) => {
+      const a = angle - half + (2 * half * i) / steps;
+      return { x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r };
+    });
+    const band = [...arcPts(rOut), ...arcPts(rIn).reverse()];
+    g.fillStyle(flash ? 0xffffff : fx.guardColor, (flash ? 0.7 : 0.35) * alpha).fillPoints(band, true);
+    g.lineStyle(1, fx.guardColor, 0.9 * alpha).strokePoints(arcPts(rIn), false);
+    g.lineStyle(2, flash ? 0xffffff : fx.guardEdge, alpha).strokePoints(arcPts(rOut), false);
+    // 肋紋：把盾面分成幾塊
+    g.lineStyle(1, fx.guardEdge, 0.5 * alpha);
+    for (let k = 1; k < 4; k++) {
+      const a = angle - half + (2 * half * k) / 4;
+      g.lineBetween(cx + Math.cos(a) * rIn, cy + Math.sin(a) * rIn, cx + Math.cos(a) * rOut, cy + Math.sin(a) * rOut);
+    }
+    // 反光：沿著盾面來回掃
+    const s = Math.sin(now / 260) * half * 0.8;
+    g.lineStyle(2, 0xffffff, 0.6 * alpha)
+      .lineBetween(cx + Math.cos(angle + s) * rIn, cy + Math.sin(angle + s) * rIn, cx + Math.cos(angle + s) * rOut, cy + Math.sin(angle + s) * rOut);
+  }
+
+  /** 放下盾牌：盾面往外擴散、變淡消失 */
+  spawnShieldDrop(cx, cy, angle, half) {
+    if (angle === undefined) return;
+    const g = this.add.graphics().setDepth(998);
+    const anim = { t: 0 };
+    this.tweens.add({
+      targets: anim, t: 1, duration: 180,
+      onUpdate: () => {
+        g.clear();
+        this.drawShield(g, cx, cy, angle, half, { radius: PLAYER_HALF + 8 + anim.t * 6, alpha: 1 - anim.t });
+      },
+      onComplete: () => g.destroy(),
+    });
+  }
+
+  /** 盾牌擋下攻擊：盾面閃白、往後縮一下，擋點噴出火花，往外震出一道弧形衝擊 */
   spawnBlock({ x, y, dx, dy }) {
     this.playSfx("block");
-    const len = Math.hypot(dx, dy) || 1;
-    const bx = x + (dx / len) * (PLAYER_HALF + 8);
-    const by = y - 4 + (dy / len) * (PLAYER_HALF + 8);
-    const g = this.add.graphics().setDepth(1001);
-    g.fillStyle(0xffffff, 1).fillCircle(bx, by, 4);
-    g.lineStyle(2, theme.meleeFx.guardColor, 1).strokeCircle(bx, by, 7);
-    this.tweens.add({ targets: g, alpha: 0, duration: 200, onComplete: () => g.destroy() });
+    const fx = theme.meleeFx;
+    const angle = Math.atan2(dy, dx);
+    const r = PLAYER_HALF + 8;
+    const bx = x + Math.cos(angle) * r;
+    const by = y - 4 + Math.sin(angle) * r;
+    // 找出是誰的盾（訊息只有位置：取最近的玩家）
+    let best = Infinity;
+    let view;
+    for (const [id, p] of this.room.state.players) {
+      const d = (p.x - x) ** 2 + (p.y - y) ** 2;
+      if (d < best) { best = d; view = this.playerViews.get(id); }
+    }
+    if (view) view.blockFlashUntil = performance.now() + 90;
+    // 擋點的白光
+    const spark = this.add.circle(bx, by, 5, 0xffffff, 1).setDepth(1001).setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({ targets: spark, scale: 0.2, alpha: 0, duration: 160, onComplete: () => spark.destroy() });
+    // 往外震出一道弧形衝擊
+    const wave = this.add.graphics().setDepth(1001);
+    const anim = { t: 0 };
+    this.tweens.add({
+      targets: anim, t: 1, duration: 220, ease: "Quad.easeOut",
+      onUpdate: () => {
+        const rr = r + 4 + anim.t * 14;
+        wave.clear().lineStyle(2, fx.guardEdge, 1 - anim.t)
+          .beginPath().arc(x, y - 4, rr, angle - 0.6, angle + 0.6).strokePath();
+      },
+      onComplete: () => wave.destroy(),
+    });
+    // 火花：往盾牌外側噴，帶一點重力
+    for (let k = 0; k < fx.blockSparks; k++) {
+      const a = angle + (Math.random() - 0.5) * 1.8;
+      const d = 10 + Math.random() * 14;
+      const dot = this.add.rectangle(bx, by, 2, 2, k % 3 ? 0xffe9a8 : 0xffffff).setDepth(1001);
+      this.tweens.add({
+        targets: dot, x: bx + Math.cos(a) * d,
+        y: { value: by + Math.sin(a) * d + 6, ease: "Quad.easeIn" },
+        alpha: 0, duration: 220 + Math.random() * 120, onComplete: () => dot.destroy(),
+      });
+    }
   }
 
   /**

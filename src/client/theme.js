@@ -173,6 +173,9 @@ export const theme = {
     slashMs: 140,          // 揮砍的弧形刀光多久消失
     slashSweepMs: 70,      // 刀光從一邊掃到另一邊要多久
     guardColor: 0x7fd4ff,  // 盾牌
+    guardEdge: 0xe8f8ff,   // 盾牌外緣的亮邊
+    guardRaiseMs: 120,     // 舉盾時盾牌展開要多久
+    blockSparks: 9,        // 擋下攻擊時噴出的火花數
     whirlColor: 0xff6b5c,  // 旋風斬的圈
     whirlSpinMs: 70,       // 旋轉時角色多久翻一次面
     cutSkills: [6],        // 打中時用刀光（不是爆炸）的技能編號：旋風斬
