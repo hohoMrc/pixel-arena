@@ -727,7 +727,7 @@ export class ArenaScene extends Phaser.Scene {
   /**
    * 紅劍士的持續型技能（伺服器狀態，所有人都看得到）：
    *   舉盾 → 身體前方一面弧形的能量盾（展開、反光、擋下時變白、放下時散掉）
-   *   旋風斬 → 地上一圈旋轉的刀光，角色快速左右翻面
+   *   旋風斬 → 兩道拖著殘光的刀刃繞圈、身體高度再一層小旋風，每次砍擊震出一圈波，邊緣甩出碎屑；角色快速左右翻面
    */
   updateMelee(view, player, x, y, isSelf, now) {
     const fx = theme.meleeFx;
@@ -757,21 +757,76 @@ export class ArenaScene extends Phaser.Scene {
     }
 
     const whirling = player.whirlTicks > 0 && player.alive;
-    if (whirling && !view.wasWhirling) this.playSfx("whirl", volume);
+    const whirl = SKILLS.find((s) => s.type === "whirl");
+    const r = whirl.radius + PLAYER_HALF;
+    if (whirling && !view.wasWhirling) {
+      this.playSfx("whirl", volume);
+      view.whirlStart = now;
+      this.spawnWhirlBurst(cx, Math.round(y), r * 0.6);
+    }
+    if (!whirling && view.wasWhirling && player.alive) this.spawnWhirlBurst(cx, Math.round(y), r); // 收招
     view.wasWhirling = whirling;
     if (whirling) {
-      const whirl = SKILLS.find((s) => s.type === "whirl");
-      const r = whirl.radius + PLAYER_HALF;
-      const spin = (now / 90) % (Math.PI * 2);
-      this.floorFx.fillStyle(fx.whirlColor, 0.12).fillCircle(cx, Math.round(y), r);
-      this.floorFx.lineStyle(2, fx.whirlColor, 0.85);
-      // 三道刀光繞著轉
+      const gy = Math.round(y);
+      const spin = now / 60; // 順時針轉（角度變大）
+      // 地上：淡淡的範圍 + 外圈一圈轉動的虛線
+      this.floorFx.fillStyle(fx.whirlColor, 0.1).fillCircle(cx, gy, r);
+      this.floorFx.lineStyle(1, fx.whirlColor, 0.6);
+      for (let k = 0; k < 16; k += 2) {
+        const a = -spin * 0.3 + (k * Math.PI * 2) / 16;
+        this.floorFx.beginPath().arc(cx, gy, r, a, a + Math.PI / 16).strokePath();
+      }
+      // 兩道刀刃：前端最亮，後面拖著越來越淡、越來越細的殘光
+      for (let k = 0; k < 2; k++) {
+        const lead = spin + k * Math.PI;
+        // 刀刃掃過的地方留一片扇形殘影（動態模糊），轉起來比較有感覺
+        this.floorFx.fillStyle(fx.whirlColor, 0.22).slice(cx, gy, r * 0.9, lead - 1.1, lead, false).fillPath();
+        for (let j = 0; j < 6; j++) {
+          const a1 = lead - j * 0.22;
+          this.floorFx.lineStyle(4 - j * 0.5, j === 0 ? fx.whirlBladeColor : fx.whirlColor, 0.9 - j * 0.14)
+            .beginPath().arc(cx, gy, r * 0.85, a1 - 0.22, a1).strokePath();
+        }
+      }
+      // 身體高度的小旋風：轉得更快，畫在角色上層，看起來是捲起來的風
       for (let k = 0; k < 3; k++) {
-        const a = spin + (k * Math.PI * 2) / 3;
-        this.floorFx.beginPath().arc(cx, Math.round(y), r, a, a + 0.9).strokePath();
+        const a = spin * 1.6 + (k * Math.PI * 2) / 3;
+        this.statusFx.lineStyle(1, 0xffffff, 0.45).beginPath().arc(cx, cy - 2, r * 0.5, a, a + 0.8).strokePath();
+      }
+      // 每次砍擊（和伺服器扣血同一個節奏）從中間震出一圈波
+      const hitMs = (whirl.hitEveryTicks / TICK_RATE) * 1000;
+      const pulse = ((now - (view.whirlStart ?? now)) % hitMs) / hitMs; // 中途加入的人沒有開始時間
+      this.floorFx.lineStyle(2, fx.whirlBladeColor, 0.6 * (1 - pulse)).strokeCircle(cx, gy, r * (0.4 + 0.6 * pulse));
+      // 邊緣甩出碎屑（順著旋轉方向往外飛）
+      if (now >= (view.nextDebrisAt ?? 0)) {
+        view.nextDebrisAt = now + fx.whirlDebrisEveryMs;
+        this.spawnWhirlDebris(cx, gy, r * 0.85, spin);
       }
       view.sprite.setFlipX(Math.floor(now / fx.whirlSpinMs) % 2 === 0);
     }
+  }
+
+  /** 旋風斬甩出的碎屑：從刀刃前端沿切線方向飛出去 */
+  spawnWhirlDebris(cx, cy, r, angle) {
+    const fx = theme.meleeFx;
+    const sx = cx + Math.cos(angle) * r;
+    const sy = cy + Math.sin(angle) * r;
+    // 順時針的切線方向是 (-sin, cos)，再往外偏一點
+    const tx = -Math.sin(angle) + Math.cos(angle) * 0.5;
+    const ty = Math.cos(angle) + Math.sin(angle) * 0.5;
+    const d = 14 + Math.random() * 10;
+    const bit = this.add.rectangle(sx, sy, 2, 2, Math.random() < 0.5 ? 0xc9b79c : fx.whirlBladeColor).setDepth(sy + 0.2);
+    this.tweens.add({
+      targets: bit, x: sx + tx * d, y: sy + ty * d * 0.7, alpha: 0,
+      duration: 260 + Math.random() * 120, ease: "Quad.easeOut", onComplete: () => bit.destroy(),
+    });
+  }
+
+  /** 旋風斬起手、收招：一圈刀氣往外擴散，腳邊揚塵 */
+  spawnWhirlBurst(x, y, r) {
+    const fx = theme.meleeFx;
+    const ring = this.add.circle(x, y, r).setStrokeStyle(3, fx.whirlBladeColor, 0.9).setDepth(SHADOW.depth + 0.3);
+    this.tweens.add({ targets: ring, scale: 1.5, alpha: 0, duration: 260, ease: "Quad.easeOut", onComplete: () => ring.destroy() });
+    this.spawnDashDust(x, y, 1);
   }
 
   /**

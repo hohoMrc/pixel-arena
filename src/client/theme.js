@@ -193,6 +193,8 @@ export const theme = {
     blockSparks: 9,        // 擋下攻擊時噴出的火花數
     whirlColor: 0xff6b5c,  // 旋風斬的圈
     whirlSpinMs: 70,       // 旋轉時角色多久翻一次面
+    whirlBladeColor: 0xfff4d6, // 旋風斬刀刃的亮邊
+    whirlDebrisEveryMs: 35,    // 旋轉時多久甩出一顆碎屑
     cutSkills: [6],        // 打中時用刀光（不是爆炸）的技能編號：旋風斬
     cutColor: 0xff6b5c,    // 刀光外圈（裡面是白色）
     cutLength: 28,         // 刀光長度
