@@ -38,15 +38,20 @@ html, body {
   padding-top: env(safe-area-inset-top);
 }
 
+/* 兩列：第一列房號＋按鈕，第二列比分（手機寬度放不下一列） */
 #hud {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 4px 8px;
   padding: 6px 10px;
   font-size: 12px;
   color: var(--muted);
 }
-#score { flex: 1; display: flex; gap: 10px; overflow: hidden; white-space: nowrap; }
+#status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* order 1 + 佔滿整列 → 換到按鈕下方；人多時自己再折行 */
+#score { order: 1; flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 2px 10px; white-space: nowrap; }
+#score:empty { display: none; }
 #score .me { color: var(--accent); }
 #score .goal { color: var(--text); }
 #share, #mute, #leave {
@@ -56,9 +61,7 @@ html, body {
   border: 0;
   border-radius: 4px;
   padding: 4px 10px;
-  max-width: 50%;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex-shrink: 0;
   white-space: nowrap;
 }
 
