@@ -25,7 +25,6 @@
             <input id="lobby-name" maxlength="12" autocomplete="off" enterkeyhint="go" placeholder="輸入你的名稱" />
           </label>
           <div id="lobby-skins"></div>
-          <div id="lobby-kit"></div>
           <!-- 三種進場方式，按哪個由 submit 事件的 submitter.value 判斷 -->
           <button id="lobby-join" type="submit" value="quick">快速配對</button>
           <button id="lobby-create" class="lobby-sub-btn" type="submit" value="create">🔒 建立私人房間</button>
@@ -33,7 +32,9 @@
             <input id="lobby-code" inputmode="numeric" autocomplete="off" placeholder="房號" aria-label="房號" />
             <button class="lobby-sub-btn" type="submit" value="join">加入</button>
           </div>
+          <!-- 選中角色的血量、速度和技能說明（lobby.js 產生），放在進場按鈕下面，手機不用捲動就按得到 -->
           <div id="lobby-error" role="alert"></div>
+          <div id="lobby-kit"></div>
         </form>
         <!-- 等待、倒數、勝負結果，疊在遊戲畫面上 -->
         <div id="overlay" hidden></div>

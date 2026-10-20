@@ -52,11 +52,13 @@ export const ROUND = {
  * type："projectile"（預設，發射飛行物）、"blast"（指定地點爆炸，見 shared/blast.js）、
  *       "meteor"（多顆指定地點爆炸，大招用）或 "dash"（衝刺，在 shared/movement.js 處理）。
  * energyCost：施放要花多少能量；ultimate: true 的技能改成要集滿怒氣，放完怒氣歸零。
+ * desc：選角畫面的技能說明（數值會自動另外列出，這裡寫玩法就好）。
  * texture 對應 client/theme.js 的素材 key；impactScale 是命中爆炸的放大倍數（請用整數，像素才不會糊）。
  */
 export const SKILLS = [
   {
     name: "火球",
+    desc: "直線飛出的火球。輕點自動瞄準最近的敵人，拖曳可以自己瞄準",
     texture: "fireball",
     impactScale: 1,
     speed: 300,          // 飛行速度（單位／秒）
@@ -68,6 +70,7 @@ export const SKILLS = [
   },
   {
     name: "爆炎",
+    desc: "丟到指定地點，地上先出現預告圈，短暫延遲後大範圍爆炸",
     type: "blast",       // 指定地點爆炸：丟到哪就在哪炸，地上會先出現預告圈
     texture: "bigfireball",
     impactScale: 2,
@@ -80,6 +83,7 @@ export const SKILLS = [
   },
   {
     name: "衝刺",
+    desc: "往移動方向快速衝一小段，衝刺中不會被技能打中",
     type: "dash",
     speed: 460,          // 衝刺速度（單位／秒），一般移動是 PLAYER_SPEED
     ticks: 6,            // 持續幾個 tick（6 = 0.2 秒，約衝 92 單位）
@@ -88,6 +92,7 @@ export const SKILLS = [
   },
   {
     name: "流星雨",
+    desc: "在指定位置周圍連續落下一圈隕石，站在正中間會全部中",
     type: "meteor",      // 在落點附近依序落下好幾顆隕石，每顆都有預告圈
     ultimate: true,      // 集滿怒氣才能放
     texture: "bigfireball",
@@ -105,6 +110,7 @@ export const SKILLS = [
   // ── 紅劍士 ──
   {
     name: "揮砍",
+    desc: "近戰，砍前方扇形範圍內的所有敵人",
     type: "slash",       // 近戰：瞬間砍前方扇形範圍內的所有敵人
     range: 44,           // 從角色中心到刀尖的距離
     arcDeg: 120,         // 扇形角度
@@ -114,6 +120,7 @@ export const SKILLS = [
   },
   {
     name: "舉盾",
+    desc: "舉起盾牌一段時間，擋下從正面來的所有傷害（背後擋不到）",
     type: "guard",       // 一段時間內擋下「從盾牌那一側來的」所有傷害
     durationTicks: 60,   // 2 秒
     arcDeg: 150,         // 盾牌擋得到的角度
@@ -122,6 +129,7 @@ export const SKILLS = [
   },
   {
     name: "旋風斬",
+    desc: "原地轉圈連續砍周圍的敵人，轉的時候還能移動",
     type: "whirl",       // 持續轉圈，每隔一段時間砍一次周圍的人；轉的時候可以移動
     ultimate: true,
     durationTicks: 60,   // 2 秒
@@ -132,6 +140,7 @@ export const SKILLS = [
   },
   {
     name: "衝刺",
+    desc: "往移動方向快速衝一小段，衝刺中不會被技能打中（冷卻比較短）",
     type: "dash",        // 紅劍士的衝刺：和一般衝刺一樣，冷卻比較短（近戰要能拉近距離）
     speed: 460,
     ticks: 6,
@@ -142,6 +151,7 @@ export const SKILLS = [
   // ── 綠巫師 ──
   {
     name: "毒液彈",      // 沒有 type = 直線飛行的子彈（和火球同一套），命中後中毒
+    desc: "比火球慢的毒液，命中後中毒一段時間持續扣血",
     texture: "poisonball",
     impactScale: 1,
     speed: 230,          // 比火球慢，比較好躲
@@ -154,6 +164,7 @@ export const SKILLS = [
   },
   {
     name: "毒沼",
+    desc: "在指定地點留下一灘毒，踩進去的敵人會變慢並持續扣血",
     type: "zone",        // 指定地點留下一灘毒，敵人踩在裡面會變慢、持續扣血
     range: 150,
     radius: 36,
@@ -166,6 +177,7 @@ export const SKILLS = [
   },
   {
     name: "藤蔓",
+    desc: "指定地點短暫預告後長出藤蔓，把範圍內的敵人定身（不能走、不能衝刺）",
     type: "root",        // 指定地點，短暫預告後把範圍內的人定身（不能走、不能衝刺，還是可以放技能）
     ultimate: true,
     range: 170,
@@ -179,6 +191,7 @@ export const SKILLS = [
   // ── 金武僧 ──
   {
     name: "氣功波",      // 直線飛行的子彈，會穿透敵人（一排人都打得到，每人只算一次）
+    desc: "會穿透敵人的氣功，排成一排的敵人都打得到",
     texture: "qiball",
     impactScale: 1,
     pierce: true,
@@ -191,6 +204,7 @@ export const SKILLS = [
   },
   {
     name: "金鐘罩",
+    desc: "罩上護盾，先扣護盾再扣血，時間到或被打破就消失",
     type: "barrier",     // 護盾：先扣護盾再扣血，時間到或被打破就消失
     amount: 40,          // 可以吸收多少傷害
     durationTicks: 90,   // 3 秒
@@ -199,6 +213,7 @@ export const SKILLS = [
   },
   {
     name: "獅子吼",
+    desc: "以自己為中心震飛周圍的敵人，並震散附近敵人的子彈",
     type: "roar",        // 以自己為中心震開周圍的敵人，順便震散附近敵人的子彈
     ultimate: true,
     radius: 70,

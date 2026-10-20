@@ -1,10 +1,50 @@
-import { NAME_MAX_LENGTH, SKIN_COUNT, ROOM_CODE_LENGTH, DASH_SLOT, kitOf } from "../shared/constants.js";
+import { NAME_MAX_LENGTH, SKIN_COUNT, ROOM_CODE_LENGTH, TICK_RATE, PLAYER_SPEED, SKIN_STATS, kitOf, maxHpOf } from "../shared/constants.js";
 import { theme, playerTextureKey } from "./theme.js";
 
 /** 上次的名稱和角色存在這台裝置，下次打開自動帶入 */
 const STORAGE_KEY = "pixel-arena:profile";
 /** 目前這次 showLobby 的選角色函式（角色卡片只綁一次 click，透過它找到這次的狀態） */
 let selectSkin = () => {};
+
+/** 技能格的名稱（順序同 KITS 的 4 格） */
+const SLOT_NAMES = ["普攻", "技能", "衝刺", "大招"];
+
+/** tick 數換成「x 秒」 */
+const sec = (ticks) => `${+(ticks / TICK_RATE).toFixed(1)} 秒`;
+
+/**
+ * 技能的數值標籤（直接從 SKILLS 的設定算，改數值時說明會自動跟著變）
+ * @returns {string[]}
+ */
+function skillStats(s) {
+  const out = [];
+  if (s.damage) {
+    if (s.type === "meteor") out.push(`每顆傷害 ${s.damage}`);
+    else if (s.type === "whirl" || s.type === "zone") out.push(`每 ${sec(s.hitEveryTicks)}傷害 ${s.damage}`);
+    else out.push(`傷害 ${s.damage}`);
+  }
+  if (s.poison) out.push(`中毒共 ${(s.poison.ticks / s.poison.everyTicks) * s.poison.damage}`);
+  if (s.amount) out.push(`吸收 ${s.amount}`);
+  if (s.rootTicks) out.push(`定身 ${sec(s.rootTicks)}`);
+  if (s.slowFactor) out.push(`減速 ${Math.round((1 - s.slowFactor) * 100)}%`);
+  if (s.durationTicks) out.push(`持續 ${sec(s.durationTicks)}`);
+  out.push(s.ultimate ? "集滿怒氣施放" : `冷卻 ${sec(s.cooldownTicks)}`);
+  if (s.energyCost) out.push(`⚡${s.energyCost}`);
+  return out;
+}
+
+/** 選角畫面下方：角色基本數值 + 4 個技能的說明 */
+function kitHtml(skin) {
+  const speed = SKIN_STATS[skin]?.speed ?? PLAYER_SPEED;
+  const speedText = speed > PLAYER_SPEED ? "快" : speed < PLAYER_SPEED ? "慢" : "普通";
+  const rows = kitOf(skin).map((s, slot) => `
+    <li>
+      <div class="kit-head"><span class="kit-icon">${theme.skillIcons[s.id] ?? "★"}</span><b>${s.name}</b><span class="kit-slot">${SLOT_NAMES[slot]}</span></div>
+      <div class="kit-desc">${s.desc ?? ""}</div>
+      <div class="kit-stats">${skillStats(s).map((t) => `<span>${t}</span>`).join("")}</div>
+    </li>`).join("");
+  return `<div class="kit-base">❤️ 血量 ${maxHpOf(skin)}　👟 移動速度 ${speedText}</div><ul>${rows}</ul>`;
+}
 
 /**
  * 角色卡片的呼吸動畫（像素遊戲常見的待機動作）。
@@ -95,11 +135,8 @@ export function showLobby(form, error = "") {
   const select = (i) => {
     skin = i;
     cards.forEach((c, j) => c.classList.toggle("selected", i === j));
-    // 選中的角色有哪些技能（衝刺大家都有，不列）
-    kitEl.textContent = kitOf(i)
-      .filter((_, slot) => slot !== DASH_SLOT)
-      .map((s) => `${theme.skillIcons[s.id] ?? ""}${s.name}`)
-      .join("　");
+    // 選中角色的血量、速度和技能說明
+    kitEl.innerHTML = kitHtml(i);
   };
   selectSkin = select;
   select(skin);
