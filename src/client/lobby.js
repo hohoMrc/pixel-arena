@@ -6,9 +6,6 @@ const STORAGE_KEY = "pixel-arena:profile";
 /** 目前這次 showLobby 的選角色函式（角色卡片只綁一次 click，透過它找到這次的狀態） */
 let selectSkin = () => {};
 
-/** 呼吸動畫：腳底這幾列不動，上面的身體往下沉 1 像素 */
-const BREATH_LEG_ROWS = 5;
-
 /**
  * 角色卡片的呼吸動畫（像素遊戲常見的待機動作）。
  * 用原圖做出兩格橫排圖：第 1 格是原圖，第 2 格是上半身往下沉 1 像素、腳不動，
@@ -29,8 +26,9 @@ function setupBreathing(el, path, i) {
     const g = canvas.getContext("2d");
     g.drawImage(img, 0, 0);
     // 第 2 格：先畫不動的腳，再把上半身整塊往下 1 像素疊上去
-    const split = h - BREATH_LEG_ROWS;
-    g.drawImage(img, 0, split, w, BREATH_LEG_ROWS, w, split, w, BREATH_LEG_ROWS);
+    const legRows = theme.breath.legRows;
+    const split = h - legRows;
+    g.drawImage(img, 0, split, w, legRows, w, split, w, legRows);
     g.drawImage(img, 0, 0, w, split, w, 1, w, split);
     el.style.backgroundImage = `url("${canvas.toDataURL()}")`;
     el.style.animationDelay = `${-i * 0.37}s`;

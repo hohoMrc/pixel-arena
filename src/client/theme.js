@@ -230,6 +230,13 @@ export const theme = {
   /** 走路動畫每秒幾格 */
   walkFrameRate: 8,
 
+  /**
+   * 站著不動時的呼吸動畫（選角畫面和遊戲裡共用）：兩格輪流，
+   * 第 2 格是上半身往下沉 1 像素、腳底 legRows 列不動。periodMs = 一次呼吸多久
+   * （選角畫面的速度寫在 style.css 的 .skin-sprite.breathing，要一起改）
+   */
+  breath: { legRows: 5, periodMs: 1400 },
+
   // 技能按鈕上的圖示（文字或 emoji；之後也可以改成圖片）
   // 索引 = SKILLS 的技能編號
   skillIcons: ["🔥", "💥", "💨", "☄️", "🗡️", "🛡️", "🌀", "💨", "🧪", "☠️", "🌿", "🌟", "🔔", "🦁"],

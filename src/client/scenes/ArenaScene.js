@@ -99,6 +99,7 @@ export class ArenaScene extends Phaser.Scene {
   create() {
     createMissingTextures(this);
     this.createWalkAnimations();
+    this.createBreathAnimations();
     this.createImpactAnimations();
 
     this.floorTile = this.add.tileSprite(0, 0, ARENA_WIDTH, ARENA_HEIGHT, "floor").setOrigin(0);
@@ -1911,6 +1912,40 @@ export class ArenaScene extends Phaser.Scene {
   }
 
 
+  /** 站著不動時的呼吸動畫 key（每個角色的側面 / 正面 / 背面各一組） */
+  breathKey(skin, dir) {
+    return `breath-${skin}-${dir}`;
+  }
+
+  /**
+   * 用站立圖做出呼吸動畫：兩格橫排的 canvas 貼圖，
+   * 第 1 格是站立圖，第 2 格是上半身往下沉 1 像素、腳不動（跟選角畫面同一種做法）。
+   */
+  createBreathAnimations() {
+    const { legRows, periodMs } = theme.breath;
+    for (let skin = 0; theme.assets[playerTextureKey(skin)]; skin++) {
+      for (const dir of ["side", "front", "back"]) {
+        const key = this.breathKey(skin, dir);
+        const sourceKey = dir === "side" ? playerTextureKey(skin) : facingTextureKey(skin, dir);
+        if (this.anims.exists(key) || !this.textures.exists(sourceKey)) continue;
+        const frame = this.textures.getFrame(sourceKey, dir === "side" ? undefined : IDLE_FRAME);
+        const { cutX, cutY, cutWidth: w, cutHeight: h } = frame;
+        const img = frame.source.image;
+        const split = h - legRows;
+
+        const tex = this.textures.createCanvas(key, w * 2, h);
+        const g = tex.getContext();
+        g.drawImage(img, cutX, cutY, w, h, 0, 0, w, h);
+        g.drawImage(img, cutX, cutY + split, w, legRows, w, split, w, legRows); // 腳不動
+        g.drawImage(img, cutX, cutY, w, split, w, 1, w, split);                // 上半身下沉 1 像素
+        tex.refresh();
+        tex.add(0, 0, 0, 0, w, h);
+        tex.add(1, 0, w, 0, w, h);
+        this.anims.create({ key, frames: [{ key, frame: 0 }, { key, frame: 1 }], frameRate: 2000 / periodMs, repeat: -1 });
+      }
+    }
+  }
+
   /** 看畫面上的位置有沒有在動，決定播走路動畫還是顯示站立圖 */
   /** 依面向和有沒有在走，切換側面 / 正面 / 背面的走路動畫或站立圖 */
   updateWalk(view, player, x, y, now, faceX, faceY) {
@@ -1926,14 +1961,18 @@ export class ArenaScene extends Phaser.Scene {
     view.sprite.setFlipX(dir === "side" && faceX < 0);
 
     // 方向或走 / 停改變時才換圖，避免每幀重設
-    const pose = `${dir}:${walking}`;
+    const pose = `${dir}:${walking}:${player.alive}`;
     if (pose === view.pose) return;
     view.pose = pose;
 
     const animKey = dir === "side" ? walkTextureKey(player.skin) : facingTextureKey(player.skin, dir);
     if (walking && this.anims.exists(animKey)) {
       view.sprite.play(animKey);
+    } else if (player.alive && this.anims.exists(this.breathKey(player.skin, dir))) {
+      // 站著：呼吸。起始格隨機，同時停下來的角色才不會一起動
+      view.sprite.play({ key: this.breathKey(player.skin, dir), startFrame: Math.round(Math.random()) });
     } else {
+      // 倒地（或沒有呼吸動畫）：靜止的站立圖
       view.sprite.stop();
       if (dir === "side") view.sprite.setTexture(playerTextureKey(player.skin));
       else view.sprite.setTexture(animKey, IDLE_FRAME);
