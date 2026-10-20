@@ -18,7 +18,7 @@ const clamp = (value, min, max) => (value < min ? min : value > max ? max : valu
  * @param {{x,y,vx,vy,faceX,faceY,dashTicks,dashCd}} entity 會被直接修改
  * @param {{moveX:number,moveY:number,skill:number}} input moveX/moveY 是方向向量，每軸 -INPUT_SCALE ~ INPUT_SCALE
  * @param {number} dt 秒
- * @param {boolean[]} [solid] 每根柱子還在不在（被打壞的可以穿過去），不傳 = 全部都在
+ * @param {Array} [solid] 還站著的障礙物（被打壞的是 null，可以穿過去；見 shared/obstacles.js），不傳 = 第一張地圖全部都在
  * @param {{ speed: number, dash: object }} [stats] 這個角色的移動速度和衝刺技能（constants.js 的 moveStatsOf）
  * @param {{ x: number, y: number, radius: number, slowFactor: number }[]} [slowZones] 會讓這個角色變慢的區域（別人的毒沼）
  *

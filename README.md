@@ -36,6 +36,20 @@ npm run dev
 - 2 人以上開始倒數 3 秒，先拿到 5 殺的獲勝，結算 5 秒後自動開下一局
 - 只有 1 人時是練習模式，可以自由走動、放技能，不計分
 - 規則數值在 `src/shared/constants.js` 的 `ROUND`；能量、怒氣在 `ENERGY`、`RAGE`
+- 地圖有三張（地牢、森林、沙漠），每局開始時隨機換一張（不會和上一局一樣），倒數畫面會顯示地圖名稱
+
+## 地圖
+
+| 地圖 | 特色 |
+|---|---|
+| 地牢 | 石柱 13 根，平均分布 |
+| 森林 | 樹 22 棵，路窄、適合繞著躲技能 |
+| 沙漠 | 仙人掌 10 棵，空曠，遠程比較吃香 |
+
+加新地圖：
+1. `src/shared/constants.js` 的 `MAPS` 加一筆（名稱 + 左上四分之一的障礙物位置，會自動鏡射成對稱）
+2. `src/client/theme.js` 的 `maps` 加同一個索引的一筆（地板、牆、障礙物的圖，碎片顏色），並在 `assets` 登記圖片
+3. 測試時可以在建立房間時帶 `fixedMap: 索引`，每局都固定那張地圖（站位才穩定）
 
 ## 專案結構
 
@@ -70,7 +84,9 @@ public/assets/         圖片放這裡
 | `floor.png` | 64×64 | 地板（會重複鋪滿，需可無縫拼接） |
 | `wall_face.png` | 64×64 | 上方外框：牆的正面，需左右無縫拼接（換成河流、樹叢也可以） |
 | `wall_top.png` | 64×64 | 左右下外框：牆頂，需無縫拼接 |
-| `pillar.png` | 25×61 | 障礙物（石柱），底部對齊地面。位置和佔地大小在 `src/shared/constants.js` 的 `OBSTACLES`（只寫左上四分之一，自動鏡射成對稱配置） |
+| `pillar.png` | 25×61 | 障礙物（石柱），底部對齊地面。位置和佔地大小在 `src/shared/constants.js` 的 `MAPS`（只寫左上四分之一，自動鏡射成對稱配置） |
+| `floor_forest.png`、`wall_face_forest.png`、`wall_top_forest.png`、`pillar_forest.png` | 同上（樹 30×48） | 森林地圖 |
+| `floor_desert.png`、`wall_face_desert.png`、`wall_top_desert.png`、`pillar_desert.png` | 同上（仙人掌 31×57） | 沙漠地圖 |
 | `rubble.png`（選用） | 30×14 | 柱子被打壞後的碎石。沒有這張圖時用程式畫的 placeholder |
 | `player0.png` ~ `player3.png` | 32×40 | 角色站立圖，面朝右，腳貼齊底部，透明背景 |
 | `player0_walk.png` ~ `player3_walk.png` | 128×40 | 走路動畫，橫排 4 格（每格 32×40）。沒有這張就不播動畫 |

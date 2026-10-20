@@ -12,9 +12,9 @@ export function createMissingTextures(scene) {
     const [w, h] = asset.size;
     const g = scene.make.graphics({ x: 0, y: 0 }, false);
 
-    if (key === "floor" || key.startsWith("wall") || key === "pillar") drawFloor(g, w, h, asset.color);
+    if (key.startsWith("floor") || key.startsWith("wall") || key.startsWith("pillar")) drawFloor(g, w, h, asset.color);
     else if (key.startsWith("player")) drawPlayer(g, w, h, asset.color);
-    else if (key === "rubble") drawRubble(g, w, h, asset.color);
+    else if (key.startsWith("rubble")) drawRubble(g, w, h, asset.color);
     else drawOrb(g, w, h, asset.color);
 
     g.generateTexture(key, w, h);

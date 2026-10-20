@@ -1,6 +1,7 @@
 import * as Phaser from "phaser";
 import { Predict } from "@colyseus/sdk/predict";
-import { OBSTACLES, moveStatsOf } from "../shared/constants.js";
+import { moveStatsOf } from "../shared/constants.js";
+import { syncSolid } from "../shared/obstacles.js";
 import { stepEntity } from "../shared/movement.js";
 import { theme } from "./theme.js";
 import { joinArena } from "./network.js";
@@ -55,8 +56,8 @@ async function main() {
   controls.setKit(self.skin);
   const moveStats = moveStatsOf(self.skin);
 
-  // 每根柱子還在不在：ArenaScene 每幀從伺服器狀態更新，預測移動時才知道哪些柱子已經被打壞
-  const solid = OBSTACLES.map(() => true);
+  // 還站著的障礙物：ArenaScene 每幀從伺服器狀態更新（地圖、哪些被打壞），預測移動才會和伺服器一致
+  const solid = syncSolid([], room.state.map, () => true);
   // 別人的毒沼（會讓自己變慢）：同樣由 ArenaScene 每幀更新
   const slowZones = [];
 

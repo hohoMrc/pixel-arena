@@ -1,13 +1,13 @@
 import { Room, matchMaker } from "colyseus";
 import { ArenaState, Player, PlayerInput, Projectile, Blast, Pillar, Zone } from "./schema.js";
 import { stepEntity } from "../../shared/movement.js";
-import { OBSTACLE_RECTS, obstacleIndexHitByCircle, circleOverlapsRect, obstacleHitByBox } from "../../shared/obstacles.js";
+import { mapRects, syncSolid, obstacleIndexHitByCircle, circleOverlapsRect, obstacleHitByBox } from "../../shared/obstacles.js";
 import { BotBrain } from "../bot.js";
 import { blastTarget, aimToward, meteorTargets } from "../../shared/blast.js";
 import {
   TICK_RATE, ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, maxHpOf, moveStatsOf,
   RESPAWN_TICKS, SKILLS, DASH_SLOT, SLOT_COUNT, kitSkill, kitOf, isTargeted, SPAWN_POINTS, MAX_PLAYERS, ROUND, INPUT_SCALE,
-  SKIN_COUNT, NAME_MAX_LENGTH, ROOM_CODE_LENGTH, ENERGY, RAGE, OBSTACLES, PILLAR,
+  SKIN_COUNT, NAME_MAX_LENGTH, ROOM_CODE_LENGTH, ENERGY, RAGE, MAPS, mapObstacles, PILLAR,
 } from "../../shared/constants.js";
 
 /** 新玩家、復活、新的一局時，技能狀態歸零的欄位 */
@@ -85,10 +85,10 @@ export class ArenaRoom extends Room {
   zoneTimes = new Map();
   /** 這個 tick 場上的毒沼（給 stepEntity 判斷緩速），每個 tick 開頭更新 */
   activeZones = [];
-  /** 每根柱子還在不在（每個 tick 從 state.pillars 更新），傳給移動和碰撞判定 */
-  solid = OBSTACLES.map(() => true);
+  /** 還站著的障礙物（被打壞的是 null，每個 tick 從 state.pillars 更新），傳給移動和碰撞判定 */
+  solid = syncSolid([], 0, () => true);
   /** 打壞的柱子哪個 tick 長回來 */
-  pillarRespawnTick = OBSTACLES.map(() => 0);
+  pillarRespawnTick = [];
 
   async onCreate(options) {
     // roomId 只能在建立時改
@@ -99,7 +99,9 @@ export class ArenaRoom extends Room {
 
     this.state.phase = "waiting";
     this.state.killsToWin = ROUND.killsToWin;
-    this.ensurePillars();
+    // fixedMap：測試用，指定之後每局都用這張地圖（只影響這個房間）
+    this.fixedMap = Number.isInteger(options?.fixedMap) && MAPS[options.fixedMap] ? options.fixedMap : null;
+    this.setMap(this.fixedMap ?? Math.floor(Math.random() * MAPS.length));
     // 狀態同步頻率跟模擬頻率一致（預設是 50ms = 每秒 20 次），網路不穩時畫面能拿到更多樣本
     this.patchRate = 1000 / TICK_RATE;
     this.setFixedTimestep((ctx) => this.step(ctx), TICK_RATE);
@@ -201,7 +203,25 @@ export class ArenaRoom extends Room {
 
   /** 每根柱子一筆血量（開發模式從舊版狀態還原時可能沒有，補上） */
   ensurePillars() {
-    while (this.state.pillars.length < OBSTACLES.length) this.state.pillars.push(new Pillar({ hp: PILLAR.hp }));
+    const count = mapObstacles(this.state.map).length;
+    while (this.state.pillars.length < count) this.state.pillars.push(new Pillar({ hp: PILLAR.hp }));
+  }
+
+  /** 換地圖：障礙物全部換成新地圖的（血量補滿） */
+  setMap(mapIndex) {
+    this.state.map = mapIndex;
+    this.state.pillars.clear();
+    this.ensurePillars();
+    this.pillarRespawnTick = mapObstacles(mapIndex).map(() => 0);
+    syncSolid(this.solid, mapIndex, () => true);
+  }
+
+  /** 隨機選下一張地圖（盡量不和這一局一樣） */
+  pickNextMap() {
+    if (this.fixedMap !== null) return this.fixedMap;
+    if (MAPS.length < 2) return 0;
+    const next = Math.floor(Math.random() * (MAPS.length - 1));
+    return next >= this.state.map ? next + 1 : next;
   }
 
   setPhase(phase, durationTicks = 0) {
@@ -211,6 +231,7 @@ export class ArenaRoom extends Room {
   }
 
   startCountdown() {
+    this.setMap(this.pickNextMap());
     this.resetRound();
     this.state.winner = "";
     this.setPhase("countdown", ROUND.countdownTicks);
@@ -466,8 +487,8 @@ export class ArenaRoom extends Room {
       }
       this.broadcast("impact", { x: Math.round(b.x), y: Math.round(b.y), skill: b.skill, hit: targets.length > 0, area: true });
       // 範圍內的柱子也會受傷
-      OBSTACLE_RECTS.forEach((r, i) => {
-        if (this.solid[i] && circleOverlapsRect(b.x, b.y, skill.radius, r)) this.damagePillar(i, skill.damage, b.owner);
+      this.solid.forEach((r, i) => {
+        if (r && circleOverlapsRect(b.x, b.y, skill.radius, r)) this.damagePillar(i, skill.damage, b.owner);
       });
       this.state.blasts.delete(blastId);
       this.blastDetonate.delete(blastId);
@@ -574,8 +595,8 @@ export class ArenaRoom extends Room {
     // 刀尖附近的柱子
     const tipX = player.x + dirX * skill.range * 0.6;
     const tipY = player.y + dirY * skill.range * 0.6;
-    OBSTACLE_RECTS.forEach((r, i) => {
-      if (this.solid[i] && circleOverlapsRect(tipX, tipY, skill.range * 0.5, r)) this.damagePillar(i, skill.damage, id);
+    this.solid.forEach((r, i) => {
+      if (r && circleOverlapsRect(tipX, tipY, skill.range * 0.5, r)) this.damagePillar(i, skill.damage, id);
     });
     this.broadcast("swing", {
       x: Math.round(player.x), y: Math.round(player.y),
@@ -603,8 +624,8 @@ export class ArenaRoom extends Room {
       this.projectileExpire.delete(projectileId);
       this.projectileHits.delete(projectileId);
     }
-    OBSTACLE_RECTS.forEach((r, i) => {
-      if (this.solid[i] && circleOverlapsRect(player.x, player.y, skill.radius, r)) this.damagePillar(i, skill.damage, id);
+    this.solid.forEach((r, i) => {
+      if (r && circleOverlapsRect(player.x, player.y, skill.radius, r)) this.damagePillar(i, skill.damage, id);
     });
     const targets = [];
     for (const [otherId, other] of this.state.players) {
@@ -662,8 +683,8 @@ export class ArenaRoom extends Room {
         if (this.blockedByGuard(other, player.x, player.y, skill.damage)) continue;
         targets.push({ id: otherId, player: other });
       }
-      OBSTACLE_RECTS.forEach((r, i) => {
-        if (this.solid[i] && circleOverlapsRect(player.x, player.y, skill.radius, r)) this.damagePillar(i, skill.damage, id);
+      this.solid.forEach((r, i) => {
+        if (r && circleOverlapsRect(player.x, player.y, skill.radius, r)) this.damagePillar(i, skill.damage, id);
       });
       for (const t of targets) {
         this.broadcast("impact", { x: Math.round(t.player.x), y: Math.round(t.player.y), skill: skill.id, hit: true });
@@ -695,7 +716,7 @@ export class ArenaRoom extends Room {
     const attacker = this.state.players.get(attackerId);
     if (attacker) attacker.rage = Math.min(RAGE.max, attacker.rage + dealt * RAGE.perStructureDamage);
     if (pillar.hp === 0) {
-      this.solid[i] = false;
+      this.solid[i] = null;
       this.pillarRespawnTick[i] = this.tick + PILLAR.respawnTicks;
     }
   }
@@ -705,12 +726,12 @@ export class ArenaRoom extends Room {
     this.ensurePillars();
     this.state.pillars.forEach((pillar, i) => {
       if (pillar.hp === 0 && this.tick >= this.pillarRespawnTick[i]) {
-        const onlyThis = OBSTACLES.map((_, j) => j === i);
+        const onlyThis = mapRects(this.state.map).map((r, j) => (j === i ? r : null));
         const occupied = [...this.state.players.values()].some((p) => obstacleHitByBox(p.x, p.y, PLAYER_HALF, onlyThis));
         if (!occupied) pillar.hp = PILLAR.hp;
       }
-      this.solid[i] = pillar.hp > 0;
     });
+    syncSolid(this.solid, this.state.map, (i) => this.state.pillars.at(i)?.hp > 0);
   }
 
   /** 正在衝刺而且衝刺有無敵（看這個角色自己的衝刺技能） */

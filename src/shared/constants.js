@@ -257,22 +257,54 @@ export const kitSkill = (skin, slot) => SKILLS[(KITS[skin] ?? KITS[0])[slot]];
 export const kitOf = (skin) => (KITS[skin] ?? KITS[0]).map((id) => SKILLS[id]);
 
 /**
- * 障礙物（石柱）。座標是「地面佔地」的中心點，w/h 是佔地大小，會擋人也會擋技能。
+ * 障礙物（石柱、樹、仙人掌…）。座標是「地面佔地」的中心點，w/h 是佔地大小，會擋人也會擋技能。
  * 圖片比佔地高（有立體感），畫的時候底部對齊佔地底部。
  * 配置上下左右對稱（每個人出生點附近的地形一樣），調整時注意不要擋到出生點。
  */
 export const OBSTACLE_SIZE = { w: 24, h: 18 };
 const CX = ARENA_WIDTH / 2;
 const CY = ARENA_HEIGHT / 2;
-/** 只寫左上四分之一，其他三個方向鏡射產生（落在中線上的不重複） */
-const QUARTER = [
-  { x: CX, y: CY },           // 正中間
-  { x: CX, y: 160 },          // 上、下中間
-  { x: 150, y: CY },          // 左、右中間
-  { x: 190, y: 236 },         // 內圈斜角
-  { x: 110, y: 170 },         // 靠近出生點的掩護
-];
-export const OBSTACLES = mirror(QUARTER);
+
+/**
+ * 地圖：每局開始時伺服器隨機選一張（state.map = 索引）。
+ * quarter 只寫左上四分之一的障礙物，其他三個方向鏡射產生（落在中線上的不重複）。
+ * 美術（地板、牆、障礙物的圖）在 client/theme.js 的 maps，索引要一致。
+ */
+export const MAPS = [
+  {
+    name: "地牢",
+    quarter: [
+      { x: CX, y: CY },           // 正中間
+      { x: CX, y: 160 },          // 上、下中間
+      { x: 150, y: CY },          // 左、右中間
+      { x: 190, y: 236 },         // 內圈斜角
+      { x: 110, y: 170 },         // 靠近出生點的掩護
+    ],
+  },
+  {
+    name: "森林",                 // 樹多、路窄，適合繞來繞去躲技能
+    quarter: [
+      { x: 250, y: 296 },         // 中間一圈四棵
+      { x: CX, y: 190 },          // 上、下中間
+      { x: 130, y: 300 },         // 左、右中間偏上（鏡射後上下各一）
+      { x: 200, y: 120 },         // 上方兩側
+      { x: 90, y: 220 },          // 出生點下方的掩護
+      { x: 186, y: 236 },         // 內圈斜角
+    ],
+  },
+  {
+    name: "沙漠",                 // 空曠、障礙物少，遠程比較吃香
+    quarter: [
+      { x: CX - 24, y: CY },      // 正中間兩棵並排（像一道短牆）
+      { x: CX, y: 150 },          // 上、下中間
+      { x: 110, y: CY },          // 左、右中間
+      { x: 180, y: 210 },         // 內圈斜角
+    ],
+  },
+].map((m) => ({ ...m, obstacles: mirror(m.quarter) }));
+
+/** 某張地圖的障礙物清單（索引超出範圍時用第一張） */
+export const mapObstacles = (mapIndex) => (MAPS[mapIndex] ?? MAPS[0]).obstacles;
 
 function mirror(points) {
   const seen = new Set();

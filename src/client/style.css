@@ -166,7 +166,8 @@ html, body {
   text-shadow: 0 2px 0 #000, 0 0 8px rgba(0, 0, 0, 0.8);
 }
 #overlay[hidden] { display: none; }
-#overlay.waiting { background: rgba(10, 11, 18, 0.35); }
+/* 亮色地圖（沙漠）上灰色小字看不清楚，等待和倒數都墊一層暗色 */
+#overlay.waiting, #overlay.countdown { background: rgba(10, 11, 18, 0.35); }
 #overlay.result { background: rgba(10, 11, 18, 0.7); }
 #overlay .title { font-size: 26px; font-weight: bold; }
 #overlay .big { font-size: 72px; font-weight: bold; color: var(--accent); }

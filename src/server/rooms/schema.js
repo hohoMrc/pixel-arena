@@ -50,7 +50,7 @@ export const Projectile = schema({
   vy: t.number(),
 });
 
-/** 柱子：索引同 shared/constants.js 的 OBSTACLES，hp = 0 代表被打壞了 */
+/** 障礙物：索引同 shared/constants.js 的 mapObstacles(state.map)，hp = 0 代表被打壞了 */
 export const Pillar = schema({
   hp: t.uint8(),
 });
@@ -78,6 +78,7 @@ export const ArenaState = schema({
   winner: t.string(),      // 獲勝者的 sessionId（ended 時）
   killsToWin: t.uint8(),
   isPrivate: t.boolean(),  // 私人房間：不會被快速配對到，只能用房號加入
+  map: t.uint8(),          // 這一局的地圖（shared/constants.js 的 MAPS 索引），每局開始時隨機換
   players: t.map(Player),
   projectiles: t.map(Projectile),
   blasts: t.map(Blast),

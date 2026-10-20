@@ -1,4 +1,5 @@
 import { escapeHtml } from "./escapeHtml.js";
+import { MAPS } from "../shared/constants.js";
 
 /**
  * 遊戲畫面中間的提示：等待玩家、開局倒數、勝負結果。
@@ -50,6 +51,7 @@ export class RoundOverlay {
   showCountdown(n) {
     if (n <= 0) return;
     this.render("countdown", `
+      <div class="sub">地圖：${MAPS[this.room.state.map]?.name ?? ""}</div>
       <div class="big">${n}</div>
       <div class="sub">先拿到 ${this.room.state.killsToWin} 殺的獲勝</div>`);
     this.playSfx("beep");

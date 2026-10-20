@@ -20,6 +20,17 @@ export const theme = {
     pillar:      { path: "assets/pillar.png",      size: [25, 61], color: 0x6b7590 },
     // 柱子被打壞後留在地上的碎石。沒有圖片時用程式畫的 placeholder（之後可以用 Codex 產圖換掉）
     rubble:      { size: [30, 14], color: 0x6b7590 },
+    // 其他地圖的地板、牆、障礙物（哪張地圖用哪些圖見下方 maps）
+    floor_forest:    { path: "assets/floor_forest.png",     size: [64, 64], color: 0x2f4a2c },
+    wallFace_forest: { path: "assets/wall_face_forest.png", size: [64, 64], color: 0x24452a },
+    wallTop_forest:  { path: "assets/wall_top_forest.png",  size: [64, 64], color: 0x2e5a33 },
+    pillar_forest:   { path: "assets/pillar_forest.png",    size: [30, 48], color: 0x3d7a3a },
+    rubble_forest:   { size: [30, 14], color: 0x6b4a2a },  // 樹被打斷後的樹樁、木屑
+    floor_desert:    { path: "assets/floor_desert.png",     size: [64, 64], color: 0xb89a68 },
+    wallFace_desert: { path: "assets/wall_face_desert.png", size: [64, 64], color: 0x9a6a3a },
+    wallTop_desert:  { path: "assets/wall_top_desert.png",  size: [64, 64], color: 0xb07a46 },
+    pillar_desert:   { path: "assets/pillar_desert.png",    size: [31, 57], color: 0x4f8a3a },
+    rubble_desert:   { size: [30, 14], color: 0x5a7a3a },  // 仙人掌被打斷後的殘塊
     fireball:    { path: "assets/fireball.png",    size: [17, 11], color: 0xff8a3d },
     bigfireball: { path: "assets/bigfireball.png", size: [39, 23], color: 0xff4d2e },
     poisonball:  { path: "assets/poisonball.png",  size: [17, 11], color: 0x6dff5c }, // 火球轉成綠色
@@ -142,6 +153,18 @@ export const theme = {
     qiTrail: { everyMs: 25, fadeMs: 220 }, // 氣功波飛行的殘影
     qiPierceLines: 8,       // 貫穿時往前噴的光線
   },
+  /**
+   * 每張地圖用哪些圖（索引同 shared/constants.js 的 MAPS）。
+   * debrisColor：障礙物被打壞時噴出的碎片顏色；damagedTint：障礙物快壞時變暗的顏色；minimapColor：小地圖上的點。
+   */
+  maps: [
+    { floor: "floor", wallFace: "wallFace", wallTop: "wallTop", pillar: "pillar", rubble: "rubble",
+      debrisColor: 0x8a92a8, damagedTint: 0x7a7f90, minimapColor: 0x8a92a8 },
+    { floor: "floor_forest", wallFace: "wallFace_forest", wallTop: "wallTop_forest", pillar: "pillar_forest", rubble: "rubble_forest",
+      debrisColor: 0x4f9a45, damagedTint: 0x6a5a40, minimapColor: 0x5fbf55 },
+    { floor: "floor_desert", wallFace: "wallFace_desert", wallTop: "wallTop_desert", pillar: "pillar_desert", rubble: "rubble_desert",
+      debrisColor: 0x6aa04a, damagedTint: 0x9a8a5a, minimapColor: 0x7fc060 },
+  ],
   /** 每個角色的代表色（死亡碎片、復活光柱用），索引 = skin */
   skinColors: [0x7fb8ff, 0xff6b5c, 0x6dd35a, 0xffd23f],
   /** 擊殺訊息、連殺、勝利煙火 */

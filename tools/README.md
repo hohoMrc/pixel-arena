@@ -131,3 +131,21 @@ Generate one image: A single small orange fireball projectile flying to the righ
 tail on the left, centered, nothing else in the image. Strict pixel art, perfectly square solid-color
 blocks, no anti-aliasing, no gradients, dark 1-pixel outline. Transparent background. Square image.
 ```
+
+**地圖素材**（森林、沙漠；`-i` 附地牢對應的原始大圖當風格參考，還原都用 `--grid 64`，地板和牆加 `--opaque`）：
+```
+地板：One seamless tileable top-down forest meadow floor tile: muted dark green grass with a few tiny
+darker tufts and small specks of dirt, low contrast so characters stand out. Must tile seamlessly in
+all directions. Match the pixel art style, pixel block size and palette approach of the attached
+reference image (reference only, make a NEW tile). Strict pixel art, perfectly square solid-color
+blocks, no anti-aliasing, no gradients. Fill the ENTIRE square edge to edge (NO transparent
+background, no border, no frame). Square image.
+
+障礙物：a single small round leafy TREE obstacle for a top-down RPG (3/4 view, like classic 16-bit
+Zelda/Pokemon): a round dark green leafy crown on top of a short brown trunk, standing on the ground
+with a small dark shadow at its base. The tree is about 1.6 times taller than it is wide, centered,
+nothing else in the image. Match the pixel art style, pixel block size and dark outline of the
+attached reference pillar (reference only, make a NEW object). Strict pixel art, ... Transparent
+background. Square image.
+```
+牆的正面、牆頂把地板提示的主題換成樹叢 / 砂岩，並沿用地牢牆的描述（正面要左右無縫、上緣亮下緣暗）。

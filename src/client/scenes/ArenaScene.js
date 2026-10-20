@@ -3,7 +3,7 @@ import { Callbacks } from "@colyseus/sdk";
 import { ARENA_WIDTH, ARENA_HEIGHT, PLAYER_HALF, maxHpOf, RAGE, SKILLS, DASH_INDEX, DASH_SLOT, kitSkill, isTargeted, TICK_RATE, INPUT_SCALE, ENERGY, PILLAR } from "../../shared/constants.js";
 import { theme, playerTextureKey, walkTextureKey, facingTextureKey, IDLE_FRAME } from "../theme.js";
 import { createMissingTextures } from "../placeholders.js";
-import { OBSTACLE_RECTS, circleHitsObstacle } from "../../shared/obstacles.js";
+import { mapRects, syncSolid, circleHitsObstacle } from "../../shared/obstacles.js";
 import { RoundOverlay } from "../roundOverlay.js";
 import { blastTarget, meteorTargets } from "../../shared/blast.js";
 
@@ -36,7 +36,6 @@ const PILLAR_FX = {
   flashMs: 80,
   jitterMs: 140,
   jitterPx: 1,
-  damagedTint: 0x7a7f90,   // 血越少越接近這個顏色（看起來快碎了）
   debrisCount: 10,         // 倒塌時噴出幾塊碎石
   debrisMs: 450,
   regrowMs: 400,
@@ -73,7 +72,7 @@ export class ArenaScene extends Phaser.Scene {
     super("arena");
   }
 
-  /** @param {{ room, predict, netInput, controls, solid, slowZones }} data 由 main.js 傳入（solid：每根柱子還在不在；slowZones：別人的毒沼。都和預測移動共用） */
+  /** @param {{ room, predict, netInput, controls, solid, slowZones }} data 由 main.js 傳入（solid：還站著的障礙物；slowZones：別人的毒沼。都和預測移動共用） */
   init(data) {
     Object.assign(this, data);
     this.playerViews = new Map();     // sessionId → { sprite, label, lastX, lastY, walkUntil, lastHp, flashUntil, jitterUntil }
@@ -102,9 +101,9 @@ export class ArenaScene extends Phaser.Scene {
     this.createWalkAnimations();
     this.createImpactAnimations();
 
-    this.add.tileSprite(0, 0, ARENA_WIDTH, ARENA_HEIGHT, "floor").setOrigin(0);
+    this.floorTile = this.add.tileSprite(0, 0, ARENA_WIDTH, ARENA_HEIGHT, "floor").setOrigin(0);
     this.createBorder();
-    this.createObstacles();
+    this.applyMap(this.room.state.map);
     this.bars = this.add.graphics().setDepth(1000); // 血條統一畫在最上層
     this.aimGuide = this.add.graphics().setDepth(999);
     this.blastGraphics = this.add.graphics().setDepth(SHADOW.depth + 0.1); // 預告圈畫在地上
@@ -125,7 +124,7 @@ export class ArenaScene extends Phaser.Scene {
       const sprite = this.add.sprite(player.x, player.y, playerTextureKey(player.skin)).setOrigin(0.5, 1);
       const label = this.add.text(0, 0, player.name, {
         fontFamily: "monospace", fontSize: "8px", color: id === this.room.sessionId ? "#ffe066" : "#ffffff",
-        resolution: 4,
+        stroke: "#000000", strokeThickness: 2, resolution: 4, // 黑框：亮色地圖（沙漠）上也看得清楚
       }).setOrigin(0.5, 1);
       const shadow = this.add.image(player.x, player.y, "shadow-player").setDepth(SHADOW.depth).setAlpha(SHADOW.player.alpha);
       this.playerViews.set(id, {
@@ -462,10 +461,13 @@ export class ArenaScene extends Phaser.Scene {
     this.cameras.main.setBounds(-side, -top, ARENA_WIDTH + side * 2, fullH);
 
     // 角色的深度 = y（>0），外框用負深度，角色的頭才會疊在牆上
-    this.add.tileSprite(-side, -top, ARENA_WIDTH + side * 2, top, "wallFace").setOrigin(0).setDepth(-2);
-    this.add.tileSprite(-side, -top, side, fullH, "wallTop").setOrigin(0).setDepth(-1);
-    this.add.tileSprite(ARENA_WIDTH, -top, side, fullH, "wallTop").setOrigin(0).setDepth(-1);
-    this.add.tileSprite(0, ARENA_HEIGHT, ARENA_WIDTH, bottom, "wallTop").setOrigin(0).setDepth(-1);
+    // 換地圖時會換這幾張的圖（applyMap）
+    this.wallFaceTile = this.add.tileSprite(-side, -top, ARENA_WIDTH + side * 2, top, "wallFace").setOrigin(0).setDepth(-2);
+    this.wallTopTiles = [
+      this.add.tileSprite(-side, -top, side, fullH, "wallTop").setOrigin(0).setDepth(-1),
+      this.add.tileSprite(ARENA_WIDTH, -top, side, fullH, "wallTop").setOrigin(0).setDepth(-1),
+      this.add.tileSprite(0, ARENA_HEIGHT, ARENA_WIDTH, bottom, "wallTop").setOrigin(0).setDepth(-1),
+    ];
 
     // 牆腳陰影，讓邊界更清楚
     const shadow = this.add.graphics().setDepth(-0.5);
@@ -479,22 +481,40 @@ export class ArenaScene extends Phaser.Scene {
    * 障礙物：圖片底部對齊佔地底部，深度 = 佔地底部的 y。
    * 角色深度是自己的 y，所以站在柱子後面（y 較小）會被擋住，站在前面會蓋過柱子。
    */
-  /** 柱子：一般狀態 + 倒塌後的碎石（平常隱藏） */
+  /** 換地圖：地板、牆換成這張地圖的圖，障礙物整批重建 */
+  applyMap(mapIndex) {
+    this.mapIndex = mapIndex;
+    this.mapTheme = theme.maps[mapIndex] ?? theme.maps[0];
+    this.floorTile.setTexture(this.mapTheme.floor);
+    this.wallFaceTile.setTexture(this.mapTheme.wallFace);
+    for (const t of this.wallTopTiles) t.setTexture(this.mapTheme.wallTop);
+    this.createObstacles();
+  }
+
+  /** 障礙物：一般狀態 + 倒塌後的碎石（平常隱藏） */
   createObstacles() {
-    this.pillarViews = OBSTACLE_RECTS.map((r) => {
+    for (const view of this.pillarViews ?? []) {
+      this.tweens.killTweensOf(view.sprite);
+      view.sprite.destroy();
+      view.rubble.destroy();
+    }
+    const { pillar, rubble } = this.mapTheme;
+    this.pillarViews = mapRects(this.mapIndex).map((r) => {
       const x = (r.left + r.right) / 2;
-      const sprite = this.add.image(x, r.bottom, "pillar").setOrigin(0.5, 1).setDepth(r.bottom);
-      const rubble = this.add.image(x, r.bottom, "rubble").setOrigin(0.5, 1).setDepth(SHADOW.depth + 0.05).setVisible(false);
-      return { sprite, rubble, x, lastHp: PILLAR.hp, flashUntil: 0, jitterUntil: 0 };
+      const sprite = this.add.image(x, r.bottom, pillar).setOrigin(0.5, 1).setDepth(r.bottom);
+      const rubbleImg = this.add.image(x, r.bottom, rubble).setOrigin(0.5, 1).setDepth(SHADOW.depth + 0.05).setVisible(false);
+      return { sprite, rubble: rubbleImg, x, lastHp: PILLAR.hp, flashUntil: 0, jitterUntil: 0 };
     });
   }
 
-  /** 從伺服器狀態更新柱子：受傷閃白、越破越暗、倒塌噴碎石、時間到長回來 */
+  /** 從伺服器狀態更新障礙物：換地圖時整批重建；受傷閃白、越破越暗、倒塌噴碎片、時間到長回來 */
   updatePillars(now) {
+    if (this.room.state.map !== this.mapIndex) this.applyMap(this.room.state.map);
     const pillars = this.room.state.pillars;
+    const hpOf = (i) => pillars?.at(i)?.hp ?? PILLAR.hp;
+    syncSolid(this.solid, this.mapIndex, (i) => hpOf(i) > 0);
     this.pillarViews.forEach((view, i) => {
-      const hp = pillars?.at(i)?.hp ?? PILLAR.hp;
-      this.solid[i] = hp > 0;
+      const hp = hpOf(i);
 
       if (hp < view.lastHp) {
         view.flashUntil = now + PILLAR_FX.flashMs;
@@ -515,7 +535,7 @@ export class ArenaScene extends Phaser.Scene {
         // 血越少越暗：在白色（原色）和 damagedTint 之間內插
         const t = 1 - hp / PILLAR.hp;
         const c = Phaser.Display.Color.Interpolate.ColorWithColor(
-          Phaser.Display.Color.ValueToColor(0xffffff), Phaser.Display.Color.ValueToColor(PILLAR_FX.damagedTint), 1, t);
+          Phaser.Display.Color.ValueToColor(0xffffff), Phaser.Display.Color.ValueToColor(this.mapTheme.damagedTint), 1, t);
         view.sprite.setTint(Phaser.Display.Color.GetColor(c.r, c.g, c.b)).setTintMode(Phaser.TintModes.MULTIPLY);
       }
     });
@@ -530,7 +550,7 @@ export class ArenaScene extends Phaser.Scene {
     const baseY = view.sprite.y - 12;
     for (let k = 0; k < PILLAR_FX.debrisCount; k++) {
       const size = 2 + Math.floor(Math.random() * 3);
-      const bit = this.add.rectangle(view.x, baseY - Math.random() * 30, size, size, 0x8a92a8).setDepth(view.sprite.depth + 1);
+      const bit = this.add.rectangle(view.x, baseY - Math.random() * 30, size, size, this.mapTheme.debrisColor).setDepth(view.sprite.depth + 1);
       const angle = Math.random() * Math.PI * 2;
       const dist = 14 + Math.random() * 22;
       this.tweens.add({
@@ -570,10 +590,9 @@ export class ArenaScene extends Phaser.Scene {
     g.fillStyle(0x0b0c12, alpha).fillRect(left - 1, top - 1, width + 2, height + 2);
     g.lineStyle(1, 0xffffff, 0.25).strokeRect(left - 1, top - 1, width + 2, height + 2);
 
-    OBSTACLE_RECTS.forEach((r, i) => {
-      if (!this.solid[i]) return;
-      g.fillStyle(0x8a92a8, 0.9).fillRect(left + Math.round(r.left * scale), top + Math.round(r.top * scale), 2, 2);
-    });
+    for (const r of this.solid) {
+      if (r) g.fillStyle(this.mapTheme.minimapColor, 0.9).fillRect(left + Math.round(r.left * scale), top + Math.round(r.top * scale), 2, 2);
+    }
     for (const [, b] of this.room.state.blasts) {
       g.fillStyle(BLAST_FX.color, 0.8).fillCircle(left + b.x * scale, top + b.y * scale, 2);
     }
