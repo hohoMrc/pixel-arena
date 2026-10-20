@@ -191,8 +191,12 @@ export class ArenaScene extends Phaser.Scene {
     callbacks.onAdd("zones", (z, id) => {
       this.zoneStartAt.set(id, performance.now());
       this.playSfx(theme.skillSounds[z.skill]?.cast, z.owner === this.room.sessionId ? 1 : theme.othersVolume);
+      this.spawnSwampSplash(z.x, z.y, SKILLS[z.skill].radius);
     });
-    callbacks.onRemove("zones", (_z, id) => this.zoneStartAt.delete(id));
+    callbacks.onRemove("zones", (z, id) => {
+      this.zoneStartAt.delete(id);
+      this.spawnSwampFade(z.x, z.y, SKILLS[z.skill].radius);
+    });
 
     this.room.onMessage("impact", (impact) => this.spawnImpact(impact));
     this.room.onMessage("swing", (swing) => this.spawnSwing(swing));
@@ -269,6 +273,7 @@ export class ArenaScene extends Phaser.Scene {
       this.updateDash(view, player, isSelf, now);
       this.updateMelee(view, player, x, y, isSelf, now);
       this.drawRoot(view, player, x, y, now);
+      this.drawWading(id, player, x, y, now);
       this.drawBarrier(view, player, x, y, isSelf, now);
       view.label.setPosition(Math.round(x), headY - 4).setDepth(feetY + 0.5);
       view.shadow.setPosition(Math.round(x), feetY).setAlpha(player.alive ? SHADOW.player.alpha : SHADOW.player.alpha * 0.4);
@@ -679,7 +684,10 @@ export class ArenaScene extends Phaser.Scene {
     }
   }
 
-  /** 毒沼：地上一灘綠色，裡面有泡泡冒出來；快消失時閃爍 */
+  /**
+   * 毒沼：一灘邊緣會蠕動的毒液（外淺內深），裡面冒泡泡、往上飄毒氣；
+   * 每 0.5 秒（和伺服器扣血同步）從中間擴散一圈毒波；快消失時閃爍。
+   */
   drawZones(now) {
     const fx = theme.witchFx;
     for (const [id, z] of this.room.state.zones) {
@@ -687,10 +695,26 @@ export class ArenaScene extends Phaser.Scene {
       const age = now - (this.zoneStartAt.get(id) ?? now);
       const leftMs = (skill.durationTicks / TICK_RATE) * 1000 - age;
       const blink = leftMs < 600 && Math.floor(now / 100) % 2 === 0;
-      const grow = Math.min(1, age / 150); // 出現時從中間擴散開
+      const grow = 1 - (1 - Math.min(1, age / 180)) ** 3; // 出現時從中間快速攤開
       const r = skill.radius * grow;
-      this.floorFx.fillStyle(fx.swampColor, blink ? 0.15 : 0.32).fillCircle(z.x, z.y, r);
-      this.floorFx.lineStyle(1, fx.swampColor, blink ? 0.4 : 0.8).strokeCircle(z.x, z.y, r);
+      const a = blink ? 0.5 : 1; // 閃爍時整體變淡
+      // 邊緣蠕動的一灘：外層淺、內層深
+      this.floorFx.fillStyle(fx.swampColor, 0.3 * a).fillPoints(this.blobPoints(z.x, z.y, r, now, 0), true);
+      this.floorFx.fillStyle(fx.swampDark, 0.35 * a).fillPoints(this.blobPoints(z.x, z.y, r * 0.62, now, 2), true);
+      this.floorFx.lineStyle(1, fx.swampColor, 0.85 * a).strokePoints(this.blobPoints(z.x, z.y, r, now, 0), true);
+      // 毒波：每次扣血時從中間擴散到邊緣
+      const pulseMs = (skill.hitEveryTicks / TICK_RATE) * 1000;
+      const pulse = (age % pulseMs) / pulseMs;
+      this.floorFx.lineStyle(2, fx.swampMist, 0.5 * (1 - pulse) * a).strokeEllipse(z.x, z.y, r * 2 * pulse, r * 1.7 * pulse);
+      // 毒氣：幾縷綠煙往上飄、越飄越淡（畫在角色上層，看起來是浮在空中）
+      for (let k = 0; k < 5; k++) {
+        const t = ((now / 1300) + k * 0.21) % 1;
+        const ang = k * 2.1 + Math.floor((now / 1300) + k * 0.21) * 0.9;
+        const mx = z.x + Math.cos(ang) * r * 0.55 + Math.sin(t * 6 + k) * 2;
+        const my = z.y + Math.sin(ang) * r * 0.45 - t * 18;
+        const size = 2 + Math.round(t * 2);
+        this.statusFx.fillStyle(fx.swampMist, 0.35 * (1 - t) * a).fillRect(Math.round(mx) - 1, Math.round(my) - 1, size, size);
+      }
       // 泡泡：用固定的「亂數」決定位置，每顆泡泡循環變大再破掉
       for (let k = 0; k < 6; k++) {
         const phase = ((now / 700) + k * 0.37) % 1;
@@ -702,7 +726,80 @@ export class ArenaScene extends Phaser.Scene {
     }
   }
 
-  /** 被藤蔓定身：腳邊一圈綠色藤蔓，快解除時閃爍 */
+  /** 邊緣會蠕動的圓（毒沼用）：半徑隨角度和時間微微起伏，seed 讓內外層動得不一樣 */
+  blobPoints(x, y, r, now, seed) {
+    const points = [];
+    const n = 20;
+    for (let i = 0; i < n; i++) {
+      const ang = (i / n) * Math.PI * 2;
+      const wobble = 1 + 0.07 * Math.sin(ang * 3 + now / 380 + seed) + 0.04 * Math.sin(ang * 5 - now / 260 + seed);
+      points.push({ x: x + Math.cos(ang) * r * wobble, y: y + Math.sin(ang) * r * wobble * 0.85 });
+    }
+    return points;
+  }
+
+  /** 踩在別人的毒沼裡：腳邊一圈圈漣漪，偶爾濺起小水滴 */
+  drawWading(id, player, x, y, now) {
+    if (!player.alive) return;
+    const inSwamp = [...this.room.state.zones.values()].some((z) =>
+      z.owner !== id && (x - z.x) ** 2 + (y - z.y) ** 2 <= SKILLS[z.skill].radius ** 2);
+    if (!inSwamp) return;
+    const fx = theme.witchFx;
+    const cx = Math.round(x);
+    const feetY = Math.round(y + PLAYER_HALF);
+    for (let k = 0; k < 2; k++) {
+      const t = ((now / 600) + k * 0.5) % 1;
+      this.floorFx.lineStyle(1, fx.swampMist, 0.8 * (1 - t)).strokeEllipse(cx, feetY, 10 + t * 18, 4 + t * 6);
+    }
+    // 腳邊兩滴往上濺的毒液（拋物線）
+    for (let k = 0; k < 2; k++) {
+      const t = ((now / 450) + k * 0.5) % 1;
+      const dx = (k ? 1 : -1) * (3 + t * 6);
+      const dy = -24 * t * (1 - t); // 拋物線，最高 6px
+      this.statusFx.fillStyle(fx.swampColor, 1 - t).fillRect(cx + Math.round(dx), feetY + Math.round(dy) - 1, 2, 2);
+    }
+  }
+
+  /** 毒沼落地：一圈毒液水花往外噴，加一道擴散的漣漪 */
+  spawnSwampSplash(x, y, radius) {
+    const fx = theme.witchFx;
+    const ring = this.add.ellipse(x, y, 8, 7).setStrokeStyle(2, fx.swampMist, 0.9).setDepth(SHADOW.depth + 0.3);
+    this.tweens.add({
+      targets: ring, displayWidth: radius * 2.3, displayHeight: radius * 2,
+      alpha: 0, duration: 380, ease: "Quad.easeOut", onComplete: () => ring.destroy(),
+    });
+    for (let k = 0; k < fx.swampSplash; k++) {
+      const ang = (k / fx.swampSplash) * Math.PI * 2 + Math.random() * 0.4;
+      const d = radius * (0.6 + Math.random() * 0.6);
+      const drop = this.add.rectangle(x, y, 3, 3, k % 2 ? fx.swampColor : fx.swampMist).setDepth(1001);
+      const height = 10 + Math.random() * 12;
+      const anim = { t: 0 };
+      this.tweens.add({
+        targets: anim, t: 1, duration: 360 + Math.random() * 160,
+        onUpdate: () => {
+          // 往外飛的同時畫一道拋物線（先往上再落回地面）
+          drop.setPosition(x + Math.cos(ang) * d * anim.t, y + Math.sin(ang) * d * 0.85 * anim.t - height * 4 * anim.t * (1 - anim.t));
+          drop.setAlpha(1 - anim.t * 0.6);
+        },
+        onComplete: () => drop.destroy(),
+      });
+    }
+  }
+
+  /** 毒沼消失：剩下的毒液蒸發成幾團綠煙往上飄 */
+  spawnSwampFade(x, y, radius) {
+    const fx = theme.witchFx;
+    for (let k = 0; k < 10; k++) {
+      const ang = Math.random() * Math.PI * 2;
+      const d = Math.sqrt(Math.random()) * radius * 0.9;
+      const puff = this.add.rectangle(x + Math.cos(ang) * d, y + Math.sin(ang) * d * 0.85, 4, 4, fx.swampMist, 0.5).setDepth(998);
+      this.tweens.add({
+        targets: puff, y: puff.y - 16 - Math.random() * 10, scale: 1.8, alpha: 0,
+        duration: 500 + Math.random() * 300, delay: Math.random() * 120, onComplete: () => puff.destroy(),
+      });
+    }
+  }
+
   /**
    * 被藤蔓定身：藤蔓從腳邊往上纏到腰（剛被纏住時會長上來），隨風擺動；
    * 快解除時閃爍，解除的瞬間藤蔓斷掉、葉子散開。
