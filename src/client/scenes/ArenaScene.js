@@ -924,28 +924,130 @@ export class ArenaScene extends Phaser.Scene {
     }
   }
 
-  /** 金鐘罩：身體外面一圈金色的罩子，越被打越淡；出現時「噹」一聲 */
+  /**
+   * 金鐘罩：一口半透明的金鐘從天上罩下來（落地時「噹」一聲、震出兩圈波紋），
+   * 鐘身有花紋和一道來回掃過的反光；越被打越淡、出現裂痕；快到期時閃爍；
+   * 時間到自己消失時，鐘往上升起淡出（被打破的另外在 spawnBarrierHit 碎掉）。
+   */
   drawBarrier(view, player, x, y, isSelf, now) {
     const on = player.barrier > 0 && player.alive;
-    if (on && !view.hadBarrier) this.playSfx("barrier", isSelf ? 1 : theme.othersVolume);
+    const fx = theme.monkFx;
+    const skill = SKILLS.find((s) => s.type === "barrier");
+    const feetY = Math.round(y + PLAYER_HALF) + 2;
+    const height = view.sprite.displayHeight + 8;
+    if (on && !view.hadBarrier) {
+      view.barrierStart = now;
+      this.playSfx("barrier", isSelf ? 1 : theme.othersVolume);
+      this.time.delayedCall(fx.bellDropMs, () => this.spawnBellRings(view));
+    }
+    if (!on && view.hadBarrier && player.alive && now - (view.barrierBrokeAt ?? 0) > 300) {
+      this.spawnBellLift(x, feetY, height); // 時間到，不是被打破
+    }
     view.hadBarrier = on;
     if (!on) return;
-    const skill = SKILLS.find((s) => s.type === "barrier");
     const left = player.barrier / skill.amount;
-    const cx = Math.round(x);
-    const cy = Math.round(y) - 4;
-    const r = PLAYER_HALF + 9 + Math.sin(now / 120); // 微微脈動
-    const color = theme.monkFx.barrierColor;
-    this.statusFx.fillStyle(color, 0.08 + 0.12 * left).fillCircle(cx, cy, r);
-    this.statusFx.lineStyle(2, color, 0.35 + 0.55 * left).strokeCircle(cx, cy, r);
+    const leftMs = (skill.durationTicks / TICK_RATE) * 1000 - (now - view.barrierStart);
+    if (leftMs < 600 && Math.floor(now / 90) % 2 === 0) return;
+    // 罩下來：從上方掉下，落地彈一下
+    const t = Math.min(1, (now - view.barrierStart) / fx.bellDropMs);
+    const drop = -40 * (1 - Phaser.Math.Easing.Bounce.Out(t));
+    // 被打到時鐘身左右晃
+    const shake = now < (view.bellShakeUntil ?? 0) ? Math.round(Math.sin(now / 12) * 2) : 0;
+    this.drawBell(this.statusFx, Math.round(x) + shake, feetY + drop, height, left, now);
   }
 
-  /** 金鐘罩吸收傷害：罩子閃一下；被打破時播碎裂聲 */
+  /** 畫一口金鐘：(cx, bottomY) 是鐘口中間，left = 剩下的護盾比例（越少越淡、裂痕越多） */
+  drawBell(g, cx, bottomY, height, left, now, alpha = 1) {
+    const fx = theme.monkFx;
+    const w = PLAYER_HALF + 8; // 鐘口半寬
+    const h = height;
+    // 輪廓：鐘口外擴 → 鐘身 → 圓頂（右半邊算好再鏡像）
+    const half = [[1, 0], [0.94, -0.05], [0.78, -0.14], [0.7, -0.45], [0.66, -0.72], [0.56, -0.88], [0.32, -0.98], [0, -1]];
+    const pts = [...half.map(([px, py]) => ({ x: cx + px * w, y: bottomY + py * h })),
+      ...half.slice(0, -1).reverse().map(([px, py]) => ({ x: cx - px * w, y: bottomY + py * h }))];
+    g.fillStyle(fx.barrierColor, (0.1 + 0.14 * left) * alpha).fillPoints(pts, true);
+    g.lineStyle(2, fx.barrierColor, (0.4 + 0.55 * left) * alpha).strokePoints(pts, true);
+    // 頂上的鐘鈕
+    g.fillStyle(fx.barrierColor, (0.5 + 0.5 * left) * alpha).fillRect(cx - 2, bottomY - h - 3, 4, 3);
+    // 兩條橫紋（鐘身的花紋）
+    g.lineStyle(1, fx.bellDark, 0.7 * alpha);
+    for (const [py, px] of [[-0.18, 0.86], [-0.72, 0.72]]) g.lineBetween(cx - px * w, bottomY + py * h, cx + px * w, bottomY + py * h);
+    // 反光：一道亮線從左掃到右
+    const s = ((now / 900) % 1) * 1.2 - 0.6;
+    g.lineStyle(2, 0xffffff, 0.35 * alpha).lineBetween(cx + s * w, bottomY - 0.82 * h, cx + s * w * 1.15, bottomY - 0.25 * h);
+    // 裂痕：護盾剩不到 60% 開始出現，越少越多條
+    const cracks = left < 0.6 ? (left < 0.3 ? 3 : 1) : 0;
+    g.lineStyle(1, 0xffffff, 0.8 * alpha);
+    for (let k = 0; k < cracks; k++) {
+      const sx = cx + [-0.4, 0.35, -0.05][k] * w;
+      const sy = bottomY - [0.6, 0.45, 0.85][k] * h;
+      g.beginPath().moveTo(sx, sy).lineTo(sx + 3, sy + 4).lineTo(sx + 1, sy + 7).lineTo(sx + 4, sy + 11).strokePath();
+    }
+  }
+
+  /** 金鐘落地「噹」：從鐘口震出兩圈金色波紋 */
+  spawnBellRings(view) {
+    if (!view.hadBarrier) return;
+    const x = view.sprite.x;
+    const y = view.sprite.y + 2;
+    for (let k = 0; k < 2; k++) {
+      const ring = this.add.ellipse(x, y, 30, 10).setStrokeStyle(2, theme.monkFx.barrierColor, 0.9).setDepth(SHADOW.depth + 0.3);
+      this.tweens.add({
+        targets: ring, scale: 2.4, alpha: 0, delay: k * 110, duration: 380, ease: "Quad.easeOut", onComplete: () => ring.destroy(),
+      });
+    }
+  }
+
+  /** 金鐘時間到：往上升起、慢慢淡掉 */
+  spawnBellLift(x, bottomY, height) {
+    const g = this.add.graphics().setDepth(998);
+    const anim = { t: 0 };
+    this.tweens.add({
+      targets: anim, t: 1, duration: 350, ease: "Quad.easeIn",
+      onUpdate: () => {
+        g.clear();
+        this.drawBell(g, Math.round(x), bottomY - 30 * anim.t, height, 1, performance.now(), 1 - anim.t);
+      },
+      onComplete: () => g.destroy(),
+    });
+  }
+
+  /** 金鐘罩吸收傷害：鐘身晃一下、閃一圈光；被打破時碎成金色碎片往外飛 */
   spawnBarrierHit({ x, y, broke }) {
     this.playSfx(broke ? "barrier_break" : "block", broke ? 1 : 0.5);
-    const g = this.add.graphics().setDepth(1001);
-    g.lineStyle(3, broke ? 0xffffff : theme.monkFx.barrierColor, 1).strokeCircle(x, y - 4, PLAYER_HALF + 9);
-    this.tweens.add({ targets: g, alpha: 0, duration: broke ? 300 : 150, onComplete: () => g.destroy() });
+    const fx = theme.monkFx;
+    // 找出是誰的鐘（訊息只有位置：取最近的玩家）
+    let view;
+    let best = Infinity;
+    for (const [id, p] of this.room.state.players) {
+      const d = (p.x - x) ** 2 + (p.y - y) ** 2;
+      if (d < best) { best = d; view = this.playerViews.get(id); }
+    }
+    const now = performance.now();
+    const cy = y - 4;
+    const flash = this.add.ellipse(x, cy, 30, 34).setStrokeStyle(2, broke ? 0xffffff : fx.barrierColor, 1).setDepth(1001);
+    this.tweens.add({ targets: flash, scale: broke ? 1.8 : 1.3, alpha: 0, duration: broke ? 300 : 160, onComplete: () => flash.destroy() });
+    if (!broke) {
+      if (view) view.bellShakeUntil = now + 160;
+      return;
+    }
+    if (view) view.barrierBrokeAt = now;
+    this.cameras.main.shake(100, 0.004);
+    for (let k = 0; k < fx.bellShards; k++) {
+      const a = (k / fx.bellShards) * Math.PI * 2 + Math.random() * 0.3;
+      const sx = x + Math.cos(a) * 12;
+      const sy = cy + Math.sin(a) * 14;
+      const shard = this.add.triangle(sx, sy, 0, 0, 4 + Math.random() * 3, 1, 1, 4 + Math.random() * 3, k % 3 ? fx.barrierColor : 0xffffff)
+        .setDepth(1001).setRotation(Math.random() * 6);
+      const d = 18 + Math.random() * 16;
+      this.tweens.add({
+        targets: shard,
+        x: sx + Math.cos(a) * d,
+        y: { value: sy + Math.sin(a) * d + 10, ease: "Quad.easeIn" }, // 往外飛再往下掉
+        rotation: shard.rotation + (Math.random() - 0.5) * 8,
+        alpha: 0, duration: 450 + Math.random() * 200, onComplete: () => shard.destroy(),
+      });
+    }
   }
 
   /**

@@ -127,6 +127,9 @@ export const theme = {
   /** 金武僧的效果 */
   monkFx: {
     barrierColor: 0xffd23f, // 金鐘罩
+    bellDark: 0xb8860b,     // 金鐘的暗部（花紋、裂痕）
+    bellDropMs: 260,        // 金鐘從天上罩下來要多久
+    bellShards: 14,         // 金鐘被打破時碎成幾片
     roarColor: 0xffe28a,    // 獅子吼的震波
     roarMs: 300,            // 每一圈震波擴散多久
     roarRings: 3,           // 幾圈震波
