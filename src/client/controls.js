@@ -22,7 +22,7 @@ const toInputDir = (dx, dy, power = 1) => {
 const KEYS = {
   up: ["w", "arrowup"], down: ["s", "arrowdown"],
   left: ["a", "arrowleft"], right: ["d", "arrowright"],
-  skills: [["j", " "], ["k"], ["l", "shift"], ["r", "i"]],
+  skills: [["j", " "], ["k"], ["l", "shift"], ["u", "i"]],
 };
 
 /**
