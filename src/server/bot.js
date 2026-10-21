@@ -7,15 +7,17 @@ import { aimToward } from "../shared/blast.js";
  */
 export const BOT_CONFIG = {
   preferredDistance: [110, 170], // 想和目標保持的距離範圍（太近就退、太遠就追）
-  aimErrorDeg: 14,               // 瞄準誤差（±度）
-  leadFactor: 0.8,               // 預判走位的程度（0 = 瞄現在位置，1 = 完全預判）
-  fireChance: 0.12,              // 每個 tick 冷卻好了、有射線時開火的機率（模擬反應時間）
-  blastErrorPx: 14,              // 爆炎落點誤差（±單位）
-  blastEscapeChance: 0.6,        // 站在預告圈裡時跑出去的機率（每個預告圈只判斷一次）
-  dodgeChance: 0.55,             // 看到火球飛來時有反應的機率（每顆火球只判斷一次）
-  dashDodgeChance: 0.5,          // 有反應時用衝刺躲的機率（其他時候只是側移）
+  aimErrorDeg: 22,               // 瞄準誤差（±度）
+  leadFactor: 0.45,              // 預判走位的程度（0 = 瞄現在位置，1 = 完全預判）
+  fireChance: 0.07,              // 每個 tick 冷卻好了、有射線時開火的機率（模擬反應時間）
+  blastErrorPx: 24,              // 爆炎落點誤差（±單位）
+  blastEscapeChance: 0.45,       // 站在預告圈裡時跑出去的機率（每個預告圈只判斷一次）
+  dodgeChance: 0.3,              // 看到火球飛來時有反應的機率（每顆火球只判斷一次）
+  dashDodgeChance: 0.3,          // 有反應時用衝刺躲的機率（其他時候只是側移）
   dodgeLookAheadSec: 0.4,        // 火球多久內會打到才閃
   strafeSwitchTicks: [30, 75],   // 繞圈方向多久換一次
+  strafeWeight: 0.5,             // 繞圈側移的力道（越大越難打中）
+  standChance: 0.35,             // 每次換方向時，這段時間改成站著不側移的機率（像真人停下來打）
   wallMargin: 40,                // 離牆多近就往中間推
   midDistance: [70, 130],        // 中距離角色（子彈射程短，例如金武僧）想保持的距離
   // 近戰角色（紅劍士）
@@ -23,7 +25,7 @@ export const BOT_CONFIG = {
   guardChance: 0.5,              // 看到攻擊來時舉盾的機率（盾牌冷卻好才會舉）
   gapCloseChance: 0.04,          // 每個 tick 衝刺拉近距離的機率（目標在 gapCloseRange 內時）
   gapCloseRange: [70, 140],
-  slashErrorDeg: 10,             // 揮砍方向誤差
+  slashErrorDeg: 16,             // 揮砍方向誤差
 };
 
 const rand = (min, max) => min + Math.random() * (max - min);
@@ -195,7 +197,8 @@ export class BotBrain {
   /** 保持距離 + 繞圈 + 離牆遠一點 */
   chooseMove(player, target, tick, [near, far]) {
     if (tick >= this.nextStrafeSwitch) {
-      this.strafeDir = Math.random() < 0.5 ? 1 : -1;
+      // 0 = 這段時間不側移（站著打），比較好被打中
+      this.strafeDir = Math.random() < BOT_CONFIG.standChance ? 0 : Math.random() < 0.5 ? 1 : -1;
       this.nextStrafeSwitch = tick + randInt(BOT_CONFIG.strafeSwitchTicks);
     }
     let dx = 0;
@@ -210,8 +213,8 @@ export class BotBrain {
       dx += (tx / dist) * approach;
       dy += (ty / dist) * approach;
       // 繞著目標側移，比較難被打中
-      dx += (-ty / dist) * this.strafeDir * 0.8;
-      dy += (tx / dist) * this.strafeDir * 0.8;
+      dx += (-ty / dist) * this.strafeDir * BOT_CONFIG.strafeWeight;
+      dy += (tx / dist) * this.strafeDir * BOT_CONFIG.strafeWeight;
     }
 
     // 太靠牆就往中間推，免得被逼到角落
