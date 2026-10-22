@@ -44,7 +44,7 @@ export class RoundOverlay {
     this.render("waiting", `
       <div class="title">等待對手加入…</div>
       <div class="sub">房號 <b class="room-code">${this.room.roomId}</b><br>按右上角「邀請」把網址傳給朋友<br>等待時可以自由練習</div>
-      <button class="overlay-btn" data-action="add-bot">🤖 跟電腦對戰</button>
+      <button class="overlay-btn" data-action="add-bot">🤖 跟電腦對戰<span class="pad-hint">（Start）</span></button>
       <div class="sub small">朋友加入時，電腦會自動讓位</div>`);
   }
 

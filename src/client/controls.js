@@ -25,6 +25,16 @@ const KEYS = {
   skills: [["j", " "], ["k"], ["l", "shift"], ["u", "i"]],
 };
 
+/** 手把類比搖桿的死區（放開時通常不會剛好回到 0） */
+const PAD_DEAD_ZONE = 0.25;
+/**
+ * 手把按鈕編號（瀏覽器的標準配置，Xbox 排列：A 下、B 右、X 左、Y 上）。
+ * 技能格對應：普攻 A／RT、技能 X、衝刺 B／RB、大招 Y
+ */
+const PAD = { a: 0, b: 1, x: 2, y: 3, rb: 5, rt: 7, start: 9, up: 12, down: 13, left: 14, right: 15 };
+const PAD_SKILLS = [[PAD.a, PAD.rt], [PAD.x], [PAD.b, PAD.rb], [PAD.y]];
+const PAD_LABELS = ["A", "X", "B", "Y"];
+
 /**
  * 下方操作區：左邊虛擬搖桿、右邊技能按鈕，桌機同時支援鍵盤。
  * 遊戲迴圈每個 tick 呼叫 read() 取得 { moveX, moveY, skill, aimX, aimY }。
@@ -34,6 +44,7 @@ const KEYS = {
  *   按住拖曳 → 往拖的方向瞄準（畫面會顯示瞄準線），放開才發射
  *   指定地點技能（爆炎）：拖越遠丟越遠，畫面顯示落點圈
  * 衝刺：按下立刻衝，方向 = 移動方向。
+ * 手把：左搖桿／十字鍵移動，右搖桿瞄準（沒推 = 自動瞄準），技能鍵和鍵盤一樣按住連發。
  *
  * 按鈕和技能組（KITS）一樣是 4 格，「第幾格」以下都叫 slot；
  * 每個角色同一格的技能不同，進房間後由 setKit(skin) 換成自己的技能組。
@@ -52,12 +63,20 @@ export class Controls {
   /** 自己目前的能量、怒氣（ArenaScene 每幀從伺服器狀態更新），用來判斷技能能不能放 */
   energy = 0;
   rage = 0;
+  /** 手把狀態（pollPad 每幀更新）：{ move, aim, held }，沒接手把時為 null */
+  pad = null;
+  /** 上一幀手把按鈕、左搖桿左右的狀態，用來判斷「剛按下」（選單用） */
+  padPrev = [];
+  padPrevStickX = 0;
 
   constructor({ joystick, knob, skillsEl }) {
     this.setupJoystick(joystick, knob);
     this.skillsEl = skillsEl;
     this.skillButtons = this.setupSkills();
     this.setupKeyboard();
+    // 手把沒有事件可以聽，只能每幀去讀；進場畫面還沒開遊戲就要能用，所以自己跑一個迴圈
+    const loop = () => { this.pollPad(); requestAnimationFrame(loop); };
+    requestAnimationFrame(loop);
   }
 
   /** 換成某個角色的技能組（重建按鈕） */
@@ -80,12 +99,15 @@ export class Controls {
     const kx = (key(KEYS.right) ? 1 : 0) - (key(KEYS.left) ? 1 : 0);
     const ky = (key(KEYS.down) ? 1 : 0) - (key(KEYS.up) ? 1 : 0);
 
+    const padMove = this.pad?.move;
     const move = kx || ky
       ? { moveX: kx * INPUT_SCALE, moveY: ky * INPUT_SCALE }
-      : { moveX: this.stick.x, moveY: this.stick.y };
+      : padMove && (padMove.x || padMove.y)
+        ? { moveX: padMove.x, moveY: padMove.y }
+        : { moveX: this.stick.x, moveY: this.stick.y };
 
     // 一次只能送一個技能；衝刺是閃避用的，同時按住時以衝刺優先（放開的技能留到下個 tick）
-    const held = (i) => this.heldSkills.has(i) || key(KEYS.skills[i] ?? []);
+    const held = (i) => this.heldSkills.has(i) || key(KEYS.skills[i] ?? []) || !!this.pad?.held.has(i);
     if (held(DASH_SLOT)) {
       this.markCast(DASH_SLOT);
       return { ...move, skill: DASH_SLOT + 1, aimX: 0, aimY: 0 };
@@ -101,9 +123,13 @@ export class Controls {
     }
     if (pending && now - pending.at > CAST_BUFFER_MS) this.pendingCast = null;
 
-    // 鍵盤：按住連發，自動瞄準
+    // 鍵盤、手把：按住連發；手把有推右搖桿就往那邊瞄，否則自動瞄準
     for (let i = 0; i < this.kit.length; i++) {
-      if (held(i)) { this.markCast(i); return { ...move, skill: i + 1, aimX: 0, aimY: 0 }; }
+      if (!held(i)) continue;
+      this.markCast(i);
+      const padAim = this.pad?.held.has(i) && this.pad.aim;
+      const aim = padAim ? toInputDir(padAim.x, padAim.y, padAim.power) : { x: 0, y: 0 };
+      return { ...move, skill: i + 1, aimX: aim.x, aimY: aim.y };
     }
     return { ...move, skill: 0, aimX: 0, aimY: 0 };
   }
@@ -216,8 +242,9 @@ export class Controls {
       // 右上角的能量消耗標籤（沒有消耗的技能不顯示）
       const cost = skill.energyCost ? `<span class="cost">⚡${skill.energyCost}</span>` : "";
       // 下方的按鍵提示（只有電腦版顯示，見 style.css 的 .keycap）：顯示這格的第一個按鍵
+      // 接上手把時改顯示手把按鈕（style.css 的 .has-pad）
       const keyName = KEYS.skills[i]?.[0];
-      const keycap = keyName ? `<span class="keycap">${keyName.toUpperCase()}</span>` : "";
+      const keycap = keyName ? `<span class="keycap"><span class="k-key">${keyName.toUpperCase()}</span><span class="k-pad">${PAD_LABELS[i]}</span></span>` : "";
       btn.innerHTML = `<span class="icon">${theme.skillIcons[skill.id] ?? "★"}</span><span class="label">${skill.name}</span>${cost}${keycap}<span class="cd-text"></span>`;
       btn.cdText = btn.querySelector(".cd-text");
 
@@ -282,5 +309,66 @@ export class Controls {
     });
     addEventListener("keyup", (e) => this.heldKeys.delete(e.key.toLowerCase()));
     addEventListener("blur", () => this.heldKeys.clear());
+  }
+
+  /** 讀第一支接上的手把：更新移動、瞄準、按住的技能，並處理選單操作 */
+  pollPad() {
+    const gp = [...(navigator.getGamepads?.() ?? [])].find((g) => g?.connected);
+    if (!!gp !== document.body.classList.contains("has-pad")) document.body.classList.toggle("has-pad", !!gp);
+    if (!gp) {
+      this.pad = null;
+      if (this.aiming?.fromPad) this.aiming = null;
+      return;
+    }
+    const down = (i) => !!gp.buttons[i]?.pressed;
+    const pressed = (i) => down(i) && !this.padPrev[i];
+
+    // 左搖桿移動，十字鍵優先
+    const dx = (down(PAD.right) ? 1 : 0) - (down(PAD.left) ? 1 : 0);
+    const dy = (down(PAD.down) ? 1 : 0) - (down(PAD.up) ? 1 : 0);
+    const [lx = 0, ly = 0, rx = 0, ry = 0] = gp.axes;
+    const mx = dx || dy ? dx : lx;
+    const my = dx || dy ? dy : ly;
+    const move = Math.hypot(mx, my) < PAD_DEAD_ZONE ? { x: 0, y: 0 } : toInputDir(mx, my);
+
+    // 右搖桿瞄準：推的方向 = 瞄準方向，推多深 = 指定地點技能丟多遠
+    const rLen = Math.hypot(rx, ry);
+    const aim = rLen < PAD_DEAD_ZONE ? null
+      : { x: rx / rLen, y: ry / rLen, power: Math.min(1, (rLen - PAD_DEAD_ZONE) / (1 - PAD_DEAD_ZONE)) };
+
+    const held = new Set();
+    PAD_SKILLS.forEach((btns, slot) => { if (btns.some(down)) held.add(slot); });
+    this.pad = { move, aim, held };
+
+    // 瞄準線：推右搖桿時顯示按住的技能（沒按就顯示普攻）；觸控正在拖曳瞄準時不搶
+    if (!this.aiming || this.aiming.fromPad) {
+      const slot = [...held].find((i) => i !== DASH_SLOT) ?? 0;
+      this.aiming = aim && this.kit[slot] ? { slot, skill: this.kit[slot], ...aim, fromPad: true } : null;
+    }
+
+    // 左搖桿往左右推過一半算「按一下」，選角色用
+    const stickX = Math.abs(lx) > 0.5 ? Math.sign(lx) : 0;
+    const stickStep = stickX !== this.padPrevStickX ? stickX : 0;
+    this.padPrevStickX = stickX;
+    const step = (pressed(PAD.right) ? 1 : 0) - (pressed(PAD.left) ? 1 : 0) || stickStep;
+    this.handlePadMenu(pressed, step);
+    this.padPrev = gp.buttons.map((b) => b.pressed);
+  }
+
+  /**
+   * 手把操作畫面上的按鈕（直接點 DOM，不用改進場畫面的程式）：
+   *   進場畫面 左右換角色、A／Start 快速配對
+   *   等待畫面 Start 跟電腦對戰
+   */
+  handlePadMenu(pressed, step) {
+    const lobby = document.getElementById("lobby");
+    if (lobby && !lobby.hidden) {
+      const cards = [...lobby.querySelectorAll(".skin-card")];
+      const cur = cards.findIndex((c) => c.classList.contains("selected"));
+      if (step && cards.length) cards[(cur + step + cards.length) % cards.length].click();
+      if (pressed(PAD.a) || pressed(PAD.start)) lobby.querySelector("#lobby-join")?.click();
+      return;
+    }
+    if (pressed(PAD.start)) document.querySelector("#overlay [data-action=add-bot]:not(:disabled)")?.click();
   }
 }
