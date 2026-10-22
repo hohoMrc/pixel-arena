@@ -37,11 +37,14 @@
           <div id="lobby-skins"></div>
           <!-- 三種進場方式，按哪個由 submit 事件的 submitter.value 判斷 -->
           <button id="lobby-join" type="submit" value="quick">快速配對<span class="pad-hint">（Ⓐ）</span></button>
-          <button id="lobby-create" class="lobby-sub-btn" type="submit" value="create">🔒 建立私人房間</button>
+          <button id="lobby-create" class="lobby-sub-btn" type="submit" value="create">🔒 建立私人房間<span class="pad-hint">（Ⓧ）</span></button>
           <div id="lobby-code-row">
             <input id="lobby-code" inputmode="numeric" autocomplete="off" placeholder="房號" aria-label="房號" />
-            <button class="lobby-sub-btn" type="submit" value="join">加入</button>
+            <!-- 手把輸入房號時取代上面的輸入框，一格一個數字（controls.js） -->
+            <div id="lobby-code-pad"></div>
+            <button class="lobby-sub-btn" type="submit" value="join">加入<span class="pad-hint">（Ⓨ）</span></button>
           </div>
+          <div class="pad-code-help">↑↓ 改數字　←→ 移動　Ⓐ 加入　Ⓑ 取消</div>
           <!-- 手把操作說明：接上手把才顯示（style.css 的 .has-pad） -->
           <div class="pad-hint pad-help">🎮 左搖桿移動　右搖桿瞄準　Ⓐ普攻　Ⓧ技能　Ⓑ衝刺　Ⓨ大招</div>
           <!-- 選中角色的血量、速度和技能說明（lobby.js 產生），放在進場按鈕下面，手機不用捲動就按得到 -->

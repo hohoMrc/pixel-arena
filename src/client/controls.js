@@ -1,4 +1,4 @@
-import { TICK_RATE, DASH_SLOT, SLOT_COUNT, INPUT_SCALE, RAGE, kitOf } from "../shared/constants.js";
+import { TICK_RATE, DASH_SLOT, SLOT_COUNT, INPUT_SCALE, RAGE, ROOM_CODE_LENGTH, kitOf } from "../shared/constants.js";
 import { theme } from "./theme.js";
 
 /** 搖桿推超過半徑的這個比例才算有方向 */
@@ -67,7 +67,9 @@ export class Controls {
   pad = null;
   /** 上一幀手把按鈕、左搖桿左右的狀態，用來判斷「剛按下」（選單用） */
   padPrev = [];
-  padPrevStickX = 0;
+  padPrevStick = { x: 0, y: 0 };
+  /** 手把正在輸入房號：{ digits, pos }，沒有則為 null */
+  codeEdit = null;
 
   constructor({ joystick, knob, skillsEl }) {
     this.setupJoystick(joystick, knob);
@@ -318,6 +320,7 @@ export class Controls {
     if (!gp) {
       this.pad = null;
       if (this.aiming?.fromPad) this.aiming = null;
+      this.stopCodeEdit(document.getElementById("lobby"));
       return;
     }
     const down = (i) => !!gp.buttons[i]?.pressed;
@@ -346,29 +349,70 @@ export class Controls {
       this.aiming = aim && this.kit[slot] ? { slot, skill: this.kit[slot], ...aim, fromPad: true } : null;
     }
 
-    // 左搖桿往左右推過一半算「按一下」，選角色用
-    const stickX = Math.abs(lx) > 0.5 ? Math.sign(lx) : 0;
-    const stickStep = stickX !== this.padPrevStickX ? stickX : 0;
-    this.padPrevStickX = stickX;
-    const step = (pressed(PAD.right) ? 1 : 0) - (pressed(PAD.left) ? 1 : 0) || stickStep;
+    // 選單用的方向「按一下」：十字鍵剛按下，或左搖桿剛推過一半
+    const stick = { x: Math.abs(lx) > 0.5 ? Math.sign(lx) : 0, y: Math.abs(ly) > 0.5 ? Math.sign(ly) : 0 };
+    const stickStep = (axis) => (stick[axis] !== this.padPrevStick[axis] ? stick[axis] : 0);
+    const step = {
+      x: (pressed(PAD.right) ? 1 : 0) - (pressed(PAD.left) ? 1 : 0) || stickStep("x"),
+      y: (pressed(PAD.down) ? 1 : 0) - (pressed(PAD.up) ? 1 : 0) || stickStep("y"),
+    };
+    this.padPrevStick = stick;
     this.handlePadMenu(pressed, step);
     this.padPrev = gp.buttons.map((b) => b.pressed);
   }
 
   /**
    * 手把操作畫面上的按鈕（直接點 DOM，不用改進場畫面的程式）：
-   *   進場畫面 左右換角色、A／Start 快速配對
+   *   進場畫面 左右換角色、A／Start 快速配對、X 建立私人房間、Y 輸入房號
    *   等待畫面 Start 跟電腦對戰
    */
   handlePadMenu(pressed, step) {
     const lobby = document.getElementById("lobby");
-    if (lobby && !lobby.hidden) {
-      const cards = [...lobby.querySelectorAll(".skin-card")];
-      const cur = cards.findIndex((c) => c.classList.contains("selected"));
-      if (step && cards.length) cards[(cur + step + cards.length) % cards.length].click();
-      if (pressed(PAD.a) || pressed(PAD.start)) lobby.querySelector("#lobby-join")?.click();
+    if (!lobby || lobby.hidden) {
+      this.stopCodeEdit(lobby);
+      if (pressed(PAD.start)) document.querySelector("#overlay [data-action=add-bot]:not(:disabled)")?.click();
       return;
     }
-    if (pressed(PAD.start)) document.querySelector("#overlay [data-action=add-bot]:not(:disabled)")?.click();
+    if (this.codeEdit) return this.handleCodeEdit(lobby, pressed, step);
+
+    const cards = [...lobby.querySelectorAll(".skin-card")];
+    const cur = cards.findIndex((c) => c.classList.contains("selected"));
+    if (step.x && cards.length) cards[(cur + step.x + cards.length) % cards.length].click();
+    if (pressed(PAD.a) || pressed(PAD.start)) lobby.querySelector("#lobby-join")?.click();
+    else if (pressed(PAD.x)) lobby.querySelector("#lobby-create")?.click();
+    else if (pressed(PAD.y)) {
+      // 從輸入框現有的房號開始（邀請連結會先帶入），不足的補 0
+      const code = lobby.querySelector("#lobby-code").value.replace(/\D/g, "");
+      this.codeEdit = { digits: Array.from({ length: ROOM_CODE_LENGTH }, (_, i) => Number(code[i] ?? 0)), pos: 0 };
+      lobby.classList.add("pad-editing");
+      this.renderCodeEdit(lobby);
+    }
+  }
+
+  /** 手把輸入房號：上下改數字、左右換格、A 加入、B 取消 */
+  handleCodeEdit(lobby, pressed, step) {
+    const edit = this.codeEdit;
+    if (pressed(PAD.b)) return this.stopCodeEdit(lobby);
+    if (pressed(PAD.a) || pressed(PAD.start)) {
+      lobby.querySelector("#lobby-code").value = edit.digits.join("");
+      this.stopCodeEdit(lobby);
+      lobby.querySelector("#lobby-code-row button[value=join]")?.click();
+      return;
+    }
+    if (step.x) edit.pos = Math.max(0, Math.min(ROOM_CODE_LENGTH - 1, edit.pos + step.x));
+    // 往上推數字變大（畫面座標 y 往下是正的，所以反過來）
+    if (step.y) edit.digits[edit.pos] = (edit.digits[edit.pos] - step.y + 10) % 10;
+    if (step.x || step.y) this.renderCodeEdit(lobby);
+  }
+
+  renderCodeEdit(lobby) {
+    const { digits, pos } = this.codeEdit;
+    lobby.querySelector("#lobby-code-pad").innerHTML = digits.map((d, i) => `<span class="${i === pos ? "cur" : ""}">${d}</span>`).join("");
+  }
+
+  stopCodeEdit(lobby) {
+    if (!this.codeEdit) return;
+    this.codeEdit = null;
+    lobby?.classList.remove("pad-editing");
   }
 }

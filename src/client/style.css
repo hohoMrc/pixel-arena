@@ -183,6 +183,23 @@ html, body {
 #lobby-error { min-height: 1.2em; font-size: 13px; color: #ff6b6b; }
 #lobby-error:empty { display: none; }
 .has-pad .pad-hint.pad-help { display: block; font-size: 12px; color: var(--text); opacity: 0.8; text-align: center; }
+/* 手把輸入房號：輸入框換成一格一格的數字，目前這格反白 */
+#lobby-code-pad, .pad-code-help { display: none; }
+#lobby.pad-editing #lobby-code { display: none; }
+#lobby.pad-editing #lobby-code-pad { display: flex; flex: 1; justify-content: center; align-items: center; gap: 4px; }
+#lobby-code-row .lobby-sub-btn { white-space: nowrap; }
+#lobby-code-pad span {
+  width: 1.5em;
+  font-size: 16px;
+  line-height: 36px;
+  text-align: center;
+  color: var(--text);
+  background: var(--panel);
+  border: 2px solid var(--panel-edge);
+  border-radius: 6px;
+}
+#lobby-code-pad span.cur { border-color: var(--accent); color: var(--accent); }
+#lobby.pad-editing .pad-code-help { display: block; font-size: 12px; color: var(--muted); }
 
 /* 遊戲畫面中間的提示（等待、倒數、勝負） */
 #overlay {
